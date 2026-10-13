@@ -357,6 +357,22 @@ importers:
         specifier: workspace:*
         version: link:../model
 
+  plugins/esphome:
+    dependencies:
+      '@2colors/esphome-native-api':
+        specifier: 1.3.6
+        version: 1.3.6
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+
   plugins/virtual:
     dependencies:
       '@livynq/sdk':
@@ -364,6 +380,10 @@ importers:
         version: link:../../packages/sdk
 
 packages:
+
+  '@2colors/esphome-native-api@1.3.6':
+    resolution: {integrity: sha512-UnWullIsfmF5txBcgZOKIpAV4ip3Kei+to7YakYX4z1I2mJrYXh91nmhgxH8aIQkqOF0tZDdpuDbRnSb/v68dQ==}
+    hasBin: true
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -700,6 +720,9 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@richardhopton/noise-c.wasm@0.5.0':
+    resolution: {integrity: sha512-ueWk5iy/0fOf4cNHXfZvwq1w1mIsgi/2ZMO+3bjiV+KupmWdgyTljWNIh7wjjwML7r1BtVkzjws9wHwVlp4JPA==}
 
   '@rolldown/pluginutils@1.0.0-rc.3':
     resolution: {integrity: sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==}
@@ -1332,6 +1355,9 @@ packages:
   glob@13.0.6:
     resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
     engines: {node: 18 || 20 || >=22}
+
+  google-protobuf@4.0.3:
+    resolution: {integrity: sha512-DI6iiRmF8fE/EzvGK5F9b8RxZeumHC2AAhi3xwOEh+GT5eRhJeW1aOtkDxn0W7cVCFQAtwK+ZDwIO1BYz+9WMA==}
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
@@ -2035,6 +2061,12 @@ packages:
 
 snapshots:
 
+  '@2colors/esphome-native-api@1.3.6':
+    dependencies:
+      '@richardhopton/noise-c.wasm': 0.5.0
+      google-protobuf: 4.0.3
+      multicast-dns: 7.2.5
+
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -2354,6 +2386,8 @@ snapshots:
     optional: true
 
   '@pinojs/redact@0.4.0': {}
+
+  '@richardhopton/noise-c.wasm@0.5.0': {}
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 
@@ -2981,6 +3015,8 @@ snapshots:
       minimatch: 10.2.6
       minipass: 7.1.3
       path-scurry: 2.0.2
+
+  google-protobuf@4.0.3: {}
 
   gopd@1.2.0: {}
 
