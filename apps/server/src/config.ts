@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parse } from 'yaml';
+import { isMap, isSeq, parse, parseDocument, type YAMLSeq } from 'yaml';
+import { writeFileSync } from 'node:fs';
+import type { PluginEntry } from '@livynq/plugin-host';
 
 export interface LivynqConfig {
   dataDir: string;
@@ -12,6 +14,8 @@ export interface LivynqConfig {
   logLevel: string;
   location?: { latitude: number; longitude: number };
   backup: { automatic: boolean; keep: number };
+  plugins: PluginEntry[];
+  configFile: string;
 }
 
 export interface ConfigOverrides {
@@ -63,10 +67,40 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
       broker: { builtin, port: brokerPort },
     },
     logLevel: overrides.logLevel ?? env.LIVYNQ_LOG_LEVEL ?? yaml.logLevel ?? 'info',
+    plugins: Array.isArray(yaml.plugins) ? (yaml.plugins as PluginEntry[]) : [],
+    configFile: file,
     backup: { automatic: yaml.backup?.automatic ?? true, keep: Number(yaml.backup?.keep ?? 7) },
     location:
       Number.isFinite(Number(yaml.location?.latitude)) && Number.isFinite(Number(yaml.location?.longitude))
         ? { latitude: Number(yaml.location.latitude), longitude: Number(yaml.location.longitude) }
         : undefined,
   };
+}
+
+/**
+ * Adds or removes `plugins:` entries in livynq.yaml, editing the YAML node in place so
+ * the user's comments and formatting elsewhere survive.
+ */
+export function updatePluginsInConfig(file: string, change: { add?: PluginEntry; remove?: (entry: PluginEntry) => boolean }): number {
+  const doc = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '');
+  if (doc.errors.length) throw new Error(`${file}: ${doc.errors[0]!.message}`);
+  let seq = doc.get('plugins', true);
+  if (!isSeq(seq)) {
+    seq = doc.createNode([]);
+    doc.set('plugins', seq);
+  }
+  const items = (seq as YAMLSeq).items;
+  let removed = 0;
+  const matches = (entry: PluginEntry) => (change.remove?.(entry) ?? false) || (change.add !== undefined && (entry.module ?? entry.path) === (change.add.module ?? change.add.path));
+  for (let i = items.length - 1; i >= 0; i--) {
+    const node = items[i];
+    const entry = (isMap(node) ? node.toJSON() : {}) as PluginEntry;
+    if (matches(entry)) {
+      items.splice(i, 1);
+      if (change.remove?.(entry)) removed++;
+    }
+  }
+  if (change.add) (seq as YAMLSeq).add(doc.createNode(change.add));
+  writeFileSync(file, doc.toString());
+  return removed;
 }

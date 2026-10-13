@@ -2,11 +2,12 @@
 import { parseArgs } from 'node:util';
 import { actionToCommand, actions, describeCommands, endpointForTarget, serveMcpStdio, summarizeDevice, type Action } from '@livynq/agent';
 import type { TokenScope } from '@livynq/model';
-import { loadConfig, type ConfigOverrides } from './config.ts';
+import { loadConfig, updatePluginsInConfig, type ConfigOverrides } from './config.ts';
 import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
 import { deviceRows, table } from './cli/format.ts';
 import { VERSION } from './version.ts';
 import type { ImportPlan } from '@livynq/importer-homeassistant';
+import type { PluginEntry } from '@livynq/plugin-host';
 
 type HaReport = Omit<ImportPlan, 'operations'>;
 
@@ -35,6 +36,9 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
   import ha <dir|backup.tar> [--dry-run] [--enable-automations]
                                 Import areas, devices, entity ids and automations from Home Assistant
   imports list | imports revert <id>
+  plugin list | plugin restart <id>
+  plugin add <npm-package | ./path> [--isolation in-process]   Install and enable a plugin (restart to load)
+  plugin remove <id>
   backup create [--out file] [--password P]    Download a backup from the running hub
   backup restore <file> [--password P]         Restore into the data dir (stop the hub first)
   backup inspect <file> [--password P]
@@ -73,6 +77,7 @@ const { values: flags, positionals } = parseArgs({
     'dry-run': { type: 'boolean' },
     'enable-automations': { type: 'boolean' },
     out: { type: 'string' },
+    isolation: { type: 'string' },
     password: { type: 'string' },
     disabled: { type: 'boolean' },
     scope: { type: 'string' },
@@ -285,6 +290,45 @@ async function run(): Promise<void> {
         dryRun ? '\nDry run: nothing changed. Run without --dry-run to apply.' : `\nImported. Undo with: livynq imports revert ${'import' in result ? result.import.id : ''}`,
       ];
       return print(lines.join('\n'), result);
+    }
+    case 'plugin':
+    case 'plugins': {
+      if (sub === 'add' && rest[0]) {
+        const config = loadConfig(overrides());
+        const target = rest[0];
+        const isPath = target.startsWith('.') || target.startsWith('/');
+        if (!isPath) {
+          const { execFileSync } = await import('node:child_process');
+          const { mkdirSync } = await import('node:fs');
+          const prefix = `${config.dataDir}/plugins`;
+          mkdirSync(prefix, { recursive: true });
+          process.stderr.write(`installing ${target} into ${prefix} …\n`);
+          execFileSync('npm', ['install', '--prefix', prefix, '--omit=dev', '--no-fund', '--no-audit', target], { stdio: ['ignore', 'inherit', 'inherit'] });
+        }
+        const { resolve } = await import('node:path');
+        const name = isPath ? undefined : target.replace(/(?<=.)@[^/]+$/, '');
+        const entry: PluginEntry = { ...(isPath ? { path: resolve(target) } : { module: name }), ...(str('isolation') === 'in-process' ? { isolation: 'in-process' as const } : {}) };
+        updatePluginsInConfig(config.configFile, { add: entry });
+        return print(`added to ${config.configFile}; restart Livynq to load it`, { ok: true, entry });
+      }
+      if (sub === 'remove' && rest[0]) {
+        const config = loadConfig(overrides());
+        const removed = updatePluginsInConfig(config.configFile, {
+          remove: (p) => {
+            const id = p.id ?? (p.module ?? p.path ?? '').replace(/^.*\//, '').replace(/^livynq-plugin-|^plugin-/, '').replace(/\.(ts|js)$/, '');
+            return id === rest[0] || p.module === rest[0];
+          },
+        });
+        if (!removed) throw new ApiError(404, 'NOT_FOUND', `No plugin "${rest[0]}" in ${config.configFile}`);
+        return print('removed from config; restart Livynq to unload it', { ok: true });
+      }
+      const c = client();
+      if (sub === 'restart' && rest[0]) {
+        const info = await c.request<Record<string, unknown>>('POST', `/api/v1/plugins/${encodeURIComponent(rest[0])}/restart`, {});
+        return print(`${rest[0]}: ${String(info.status)}`, info);
+      }
+      const list = await c.request<Record<string, unknown>[]>('GET', '/api/v1/plugins');
+      return print(table(list.map((p) => ({ id: p.id, status: p.status, isolation: p.isolation, pid: p.pid ?? '', restarts: p.restarts ?? '', devices: p.devices ?? '', error: p.lastError ?? '' }))), list);
     }
     case 'backup': {
       const { readFileSync, writeFileSync } = await import('node:fs');

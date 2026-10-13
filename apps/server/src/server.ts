@@ -5,12 +5,13 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, t
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
-import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type TokenInfo, type TokenScope } from '@livynq/core';
+import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type TokenInfo, type TokenScope } from '@livynq/core';
 import type { Availability, CommandBody, Device, ExposurePolicy, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
+import type { PluginRuntimeInfo } from '@livynq/plugin-host';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -144,6 +145,18 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const { data } = createBackup(home, { version: VERSION, password: body.password });
     const name = `livynq-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}${body.password ? '.lvqbak' : '.tar.gz'}`;
     return reply.header('content-type', 'application/octet-stream').header('content-disposition', `attachment; filename="${name}"`).send(data);
+  });
+  app.get('/api/v1/plugins', admin, async () =>
+    home.adapters().map((id) => {
+      const adapter = home.adapter<Adapter & { info?: () => PluginRuntimeInfo }>(id);
+      return adapter?.info?.() ?? { id, isolation: 'in-process', status: 'running', module: id, builtin: true };
+    }),
+  );
+  app.post('/api/v1/plugins/:id/restart', admin, async (req) => {
+    const adapter = home.adapter<Adapter & { restart?: () => Promise<void>; info: () => PluginRuntimeInfo }>((req.params as { id: string }).id);
+    if (!adapter?.restart) throw new LivynqError('NOT_SUPPORTED', 'Only process-isolated plugins can be restarted at runtime');
+    await adapter.restart();
+    return adapter.info();
   });
   app.get('/api/v1/commands/recent', read, async (req) => {
     const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 50));

@@ -1,4 +1,4 @@
-import type { AttributeValue, Availability, Device, DeviceDefinition, DeviceId } from '@livynq/model';
+import type { AttributeValue, Availability, Device, DeviceDefinition, DeviceId, DeviceState } from '@livynq/model';
 import type { Logger } from './logger.ts';
 import type { Home } from './home.ts';
 
@@ -35,6 +35,8 @@ export interface AdapterContext {
   removeDevice(id: DeviceId): void;
   /** Devices this adapter registered in earlier runs (useful to mark them offline or clean up). */
   knownDevices(): Device[];
+  /** Current state of one of this adapter's devices. */
+  deviceState(id: DeviceId): DeviceState;
   /** Stable numeric endpoint id for an adapter specific key. */
   endpointId(deviceId: DeviceId, key: string): number;
 }

@@ -202,6 +202,12 @@ importers:
       '@livynq/model':
         specifier: workspace:*
         version: link:../../packages/model
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+      '@livynq/plugin-virtual':
+        specifier: workspace:*
+        version: link:../../plugins/virtual
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
@@ -328,6 +334,34 @@ importers:
         version: 2.9.1
 
   packages/model: {}
+
+  packages/plugin-host:
+    dependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../core
+      '@livynq/model':
+        specifier: workspace:*
+        version: link:../model
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@livynq/plugin-virtual':
+        specifier: workspace:*
+        version: link:../../plugins/virtual
+
+  packages/sdk:
+    dependencies:
+      '@livynq/model':
+        specifier: workspace:*
+        version: link:../model
+
+  plugins/virtual:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
 
 packages:
 

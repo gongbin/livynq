@@ -6,6 +6,9 @@ import { DemoAdapter, Home, writeAutomaticBackup } from '@livynq/core';
 import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
 import { AutomationEngine } from '@livynq/automation';
+import { createPluginAdapter, resolvePlugin } from '@livynq/plugin-host';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LivynqConfig } from './config.ts';
 import { createServer } from './server.ts';
 import { VERSION } from './version.ts';
@@ -33,6 +36,20 @@ export async function startLivynq(config: LivynqConfig): Promise<RunningInstance
     home.useAdapter(
       new MqttAdapter({ url: config.mqtt.url, username: config.mqtt.username, password: config.mqtt.password, discoveryPrefix: config.mqtt.discoveryPrefix }),
     );
+  }
+  for (const entry of config.plugins) {
+    if (entry.enabled === false) continue;
+    try {
+      const plugin = resolvePlugin(entry, {
+        dataDir: config.dataDir,
+        configDir: dirname(config.configFile),
+        resolveBuiltin: (specifier) => fileURLToPath(import.meta.resolve(specifier)),
+      });
+      home.useAdapter(await createPluginAdapter(plugin));
+      logger.info({ plugin: plugin.id, isolation: plugin.isolation }, 'plugin registered');
+    } catch (err) {
+      logger.error({ entry, err: (err as Error).message }, 'plugin could not be loaded');
+    }
   }
   if (config.homekit.enabled) {
     home.useExporter(

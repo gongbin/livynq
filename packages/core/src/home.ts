@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   getCapability,
@@ -99,6 +101,10 @@ export class Home {
     return this.#extensions.get(id) as T | undefined;
   }
 
+  adapter<T extends Adapter>(id: string): T | undefined {
+    return this.#adapters.get(id) as T | undefined;
+  }
+
   adapters(): string[] {
     return [...this.#adapters.keys()];
   }
@@ -145,9 +151,11 @@ export class Home {
 
   #contextFor(adapterId: string): AdapterContext {
     const log = this.log.child({ adapter: adapterId });
+    const dataDir = this.dataDir === ':memory:' ? join(tmpdir(), `livynq-memory-${process.pid}`, adapterId) : join(this.dataDir, 'plugin-data', adapterId);
+    mkdirSync(dataDir, { recursive: true });
     return {
       log,
-      dataDir: this.dataDir === ':memory:' ? this.dataDir : join(this.dataDir, 'plugin-data', adapterId),
+      dataDir,
       upsertDevice: (def) => this.#handleFor(adapterId, this.registry.upsertFromAdapter(adapterId, def).id),
       removeDevice: (id) => {
         if (this.registry.getDevice(id)?.adapter !== adapterId) return;
@@ -155,6 +163,7 @@ export class Home {
         for (const key of this.#handles(id)) this.#handlers.delete(key);
       },
       knownDevices: () => this.registry.listDevices().filter((d) => d.adapter === adapterId),
+      deviceState: (id) => (this.registry.getDevice(id)?.adapter === adapterId ? this.registry.getState(id) : {}),
       endpointId: (deviceId, key) => this.registry.endpointId(deviceId, key),
     };
   }

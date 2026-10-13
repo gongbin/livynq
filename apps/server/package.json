@@ -20,6 +20,8 @@
     "@livynq/exporter-homekit": "workspace:*",
     "@livynq/importer-homeassistant": "workspace:*",
     "@livynq/model": "workspace:*",
+    "@livynq/plugin-host": "workspace:*",
+    "@livynq/plugin-virtual": "workspace:*",
     "fastify": "^5.12.5",
     "pino": "^10.4.0",
     "yaml": "^2.9.1"

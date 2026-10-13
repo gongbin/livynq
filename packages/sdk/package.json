@@ -1,0 +1,13 @@
+{
+  "name": "@livynq/sdk",
+  "version": "0.1.0",
+  "description": "SDK for Livynq plugins",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/model": "workspace:*"
+  }
+}
