@@ -288,6 +288,25 @@
     50% { opacity: 0.35; }
   }
 
+  /* Indeterminate progress (e.g. Matter commissioning): a segment sliding along the track. */
+  .lv-indeterminate {
+    position: relative;
+    overflow: hidden;
+  }
+  .lv-indeterminate::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 40%;
+    border-radius: inherit;
+    background: var(--amber);
+    animation: lv-indeterminate 1.4s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+  }
+  @keyframes lv-indeterminate {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(250%); }
+  }
+
   .lv-spin-slow {
     animation: lv-spin 2.4s linear infinite;
   }

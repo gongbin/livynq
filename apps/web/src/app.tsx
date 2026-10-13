@@ -1,4 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react';
+import { AddDeviceHost } from './components/add-device.tsx';
 import { ApprovalBanner } from './components/approvals.tsx';
 import { DialogHost } from './components/dialog.tsx';
 import { Shell } from './components/shell.tsx';
@@ -87,6 +88,7 @@ function Authed() {
         </EmptyState>
       )}
       <Page />
+      <AddDeviceHost />
     </Shell>
   );
 }

@@ -3,12 +3,14 @@ import type { DeviceDTO, Room } from '@livynq/model';
 import { DeviceCard } from '../components/device-card.tsx';
 import { DeviceSheet } from '../components/device-sheet.tsx';
 import { Icon } from '../components/icons.tsx';
-import { EmptyState, Segmented, cx } from '../components/ui.tsx';
+import { Button, EmptyState, Segmented, cx } from '../components/ui.tsx';
+import { openAddDevice } from '../lib/add-device.ts';
 import { deviceKind, lightState, readings, round1, sortDevices } from '../lib/devices.ts';
 import { formatDateLine } from '../lib/format.ts';
 import { useLang, useT, type Translate } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
 import { href } from '../lib/router.ts';
+import { useCan } from '../lib/session.ts';
 
 const OTHER = '__other';
 
@@ -69,6 +71,7 @@ export function HomePage() {
   const [room, setRoom] = useState<string>('all');
   const [open, setOpen] = useState<string | null>(null);
   const now = useNow();
+  const canAdmin = useCan('admin');
   const summary = useSummary(devices, rooms, t);
   const groups = groupByRoom(devices, rooms, t('home.other'));
   const visible = room === 'all' ? groups : groups.filter((g) => g.id === room);
@@ -99,6 +102,9 @@ export function HomePage() {
           <a href={href('wall')} aria-label={t('nav.wall')} title={t('nav.wall')} className="grid size-11 place-items-center rounded-[13px] bg-chip text-ink! md:hidden">
             <Icon name="tablet" size={17} />
           </a>
+          <Button variant="amber" icon="plus" onClick={() => openAddDevice()} className="min-h-11 max-sm:size-11 max-sm:p-0" aria-label={t('add.cta')} title={t('add.cta')}>
+            <span className="max-sm:hidden">{t('add.cta')}</span>
+          </Button>
         </div>
       </div>
 
@@ -125,7 +131,11 @@ export function HomePage() {
       {!ready ? (
         <CardSkeleton />
       ) : devices.length === 0 ? (
-        <EmptyState icon="home" title={t('home.empty.title')} body={t('home.empty.body')} />
+        <EmptyState icon="home" title={t('home.empty.title')} body={canAdmin ? t('add.emptyBody') : t('home.empty.body')}>
+          <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+            {t('add.cta')}
+          </Button>
+        </EmptyState>
       ) : (
         <div className="flex flex-col gap-7">
           {visible.map((g) => (

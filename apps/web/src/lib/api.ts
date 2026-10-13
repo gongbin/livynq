@@ -117,6 +117,37 @@ export type CommandResult = { ok: true } | PendingCommand;
 
 export type ConfirmationStatus = ConfirmationDTO['status'];
 
+export type PluginMethodId = 'matter' | 'zigbee' | 'esphome' | 'homeassistant' | 'virtual';
+export type OnboardingMethodId = PluginMethodId | 'mqtt';
+
+export interface PluginActionInfo {
+  name: string;
+  description: string;
+}
+
+/** Mirrors `GET /api/v1/onboarding` (apps/server/src/routes/onboarding.ts). */
+export type OnboardingMethod =
+  | { id: PluginMethodId; module: string; plugin: string; enabled: boolean; actions: PluginActionInfo[] }
+  | { id: 'mqtt'; enabled: boolean; broker: { url: string | null; builtin: boolean; port: number; discoveryPrefix: string } | null };
+
+export interface Onboarding {
+  methods: OnboardingMethod[];
+  homekit: { enabled: boolean };
+  matterBridge: { enabled: boolean };
+}
+
+export type PluginStatus = 'running' | 'starting' | 'crashed' | 'disabled' | 'stopped';
+
+/** One row of `GET /api/v1/plugins` (in-process plugins report fewer fields). */
+export interface PluginInfo {
+  id: string;
+  module: string;
+  isolation: 'process' | 'in-process';
+  status: PluginStatus;
+  lastError?: string | null;
+  actions: PluginActionInfo[];
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -226,6 +257,15 @@ export const api = {
   updateWallSettings: (wall: Partial<Pick<WallSettings, 'cardOpacity' | 'backgroundBlur' | 'backgroundDim'>>) => request<{ wall: WallSettings }>('PATCH', '/ui/settings', { wall }),
   deleteWallBackground: () => request<{ wall: WallSettings }>('DELETE', '/ui/wall-background'),
   uploadWallBackground,
+
+  onboarding: () => request<Onboarding>('GET', '/onboarding'),
+  plugins: () => request<PluginInfo[]>('GET', '/plugins'),
+  enablePlugin: (module: string, config?: Record<string, unknown>) =>
+    request<{ id: string; enabled: boolean; actions: PluginActionInfo[] }>('POST', '/plugins', config ? { module, config } : { module }),
+  pluginAction: <T = unknown>(plugin: string, action: string, params: Record<string, unknown> = {}) =>
+    request<{ result: T }>('POST', `/plugins/${enc(plugin)}/actions/${enc(action)}`, params).then((r) => r.result),
+  restartPlugin: (id: string) => request<PluginInfo>('POST', `/plugins/${enc(id)}/restart`),
+  serialPorts: () => request<{ path: string; label: string }[]>('GET', '/system/serial-ports'),
 };
 
 /** XHR rather than fetch: fetch cannot report upload progress. */

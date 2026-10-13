@@ -2,7 +2,8 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import { DeviceSheet } from '../components/device-sheet.tsx';
 import { toneStyle } from '../components/device-card.tsx';
 import { Icon } from '../components/icons.tsx';
-import { Card, Dot, EmptyState, PageHeader, Spinner } from '../components/ui.tsx';
+import { Button, Card, Dot, EmptyState, PageHeader, Spinner } from '../components/ui.tsx';
+import { openAddDevice } from '../lib/add-device.ts';
 import { describe, primaryEntity, roomName, sortDevices } from '../lib/devices.ts';
 import { useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
@@ -24,7 +25,15 @@ export function DevicesPage() {
 
   return (
     <>
-      <PageHeader title={t('devices.title')} subtitle={t('devices.subtitle')} />
+      <PageHeader
+        title={t('devices.title')}
+        subtitle={t('devices.subtitle')}
+        actions={
+          <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+            {t('add.cta')}
+          </Button>
+        }
+      />
       <div className="relative">
         <Icon name="search" size={17} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
         <input
@@ -42,7 +51,15 @@ export function DevicesPage() {
             <Spinner size={20} />
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState icon="search" title={Object.keys(byId).length ? t('devices.noMatch') : t('home.empty.title')} />
+          Object.keys(byId).length ? (
+            <EmptyState icon="search" title={t('devices.noMatch')} />
+          ) : (
+            <EmptyState icon="home" title={t('home.empty.title')} body={t('add.emptyBody')}>
+              <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+                {t('add.cta')}
+              </Button>
+            </EmptyState>
+          )
         ) : (
           <>
             <div className="hidden grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_90px_110px] gap-3 px-3 pt-2 pb-1.5 text-[11px] font-extrabold tracking-[0.06em] text-muted uppercase lg:grid">
