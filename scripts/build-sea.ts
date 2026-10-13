@@ -34,7 +34,7 @@ const result = await build({
   outfile: join(work, 'livynq.cjs'),
   define: { __LIVYNQ_VERSION__: JSON.stringify(version) },
   // Heavy / native plugin deps are not bundled; those plugins load from disk.
-  external: ['zigbee-herdsman', 'zigbee-herdsman-converters', '@serialport/*', 'serialport', '@2colors/esphome-native-api', 'bun:sqlite'],
+  external: ['zigbee-herdsman', 'zigbee-herdsman-converters', '@serialport/*', 'serialport', '@2colors/esphome-native-api', 'zwave-js', '@zwave-js/*', 'bun:sqlite'],
   logLevel: 'warning',
   // import.meta only appears on guarded development code paths (sources on disk), never taken in the SEA.
   logOverride: { 'empty-import-meta': 'silent' },

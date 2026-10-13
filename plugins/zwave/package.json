@@ -1,0 +1,18 @@
+{
+  "name": "@livynq/plugin-zwave",
+  "version": "0.1.0",
+  "description": "Z-Wave for Livynq (zwave-js): S2, SmartStart, Long Range",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*",
+    "zwave-js": "15.31.1"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}
