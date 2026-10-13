@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { Availability, Device, DeviceId, Room, StateChange } from '@livynq/model';
+import type { Confirmation } from './confirmations.ts';
 
 export interface HomeEvents {
   'device.added': Device;
@@ -8,6 +9,8 @@ export interface HomeEvents {
   availability: { deviceId: DeviceId; availability: Availability };
   state: StateChange;
   'rooms.changed': Room[];
+  confirmation: Confirmation;
+  settings: { key: string; value: unknown };
 }
 
 export type HomeEventName = keyof HomeEvents;
@@ -36,7 +39,7 @@ export class EventBus {
 
   /** Subscribes to every event; used by the WebSocket API. */
   onAny(listener: <E extends HomeEventName>(event: E, payload: HomeEvents[E]) => void): () => void {
-    const names: HomeEventName[] = ['device.added', 'device.updated', 'device.removed', 'availability', 'state', 'rooms.changed'];
+    const names: HomeEventName[] = ['device.added', 'device.updated', 'device.removed', 'availability', 'state', 'rooms.changed', 'confirmation', 'settings'];
     const offs = names.map((name) => this.on(name, (payload) => listener(name, payload)));
     return () => offs.forEach((off) => off());
   }

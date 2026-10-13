@@ -16,6 +16,7 @@ import {
   percentToSat,
   type CommandBody,
   type DeviceDTO,
+  type Risk,
   type TokenScope,
 } from '@livynq/model';
 import type { HomeApi } from './home-api.ts';
@@ -24,6 +25,8 @@ import { describeCommands, endpointForTarget, summarizeDevice } from './describe
 export interface McpOptions {
   api: HomeApi;
   scope: TokenScope;
+  /** The token's risk limit: actions above it are queued for human approval. */
+  riskLimit: Risk;
   /** Recorded as the command source, e.g. `agent:claude-desktop`. */
   clientName: string;
   version: string;
@@ -34,9 +37,28 @@ class ToolError extends Error {}
 const INSTRUCTIONS = `Livynq is a local smart home hub. Start with home_overview, then list_devices to find targets.
 Targets accept an entity id (light.living_room_ceiling), a device id (zigbee:0x...), a device name or alias.
 Prefer the high-level actions of control_device (turn_on, set_brightness...). Devices marked readOnly cannot be controlled.
-Every command is recorded in the audit log with this client's name.`;
+Every command is recorded in the audit log with this client's name.
+Risky actions (unlocking doors, garage doors, anything above this token's risk limit) are not executed immediately:
+they wait for the user's approval in Livynq. Never try to work around a pending confirmation.`;
 
-export const actions = ['turn_on', 'turn_off', 'toggle', 'set_brightness', 'set_color_temperature', 'set_color', 'raw'] as const;
+export const actions = [
+  'turn_on',
+  'turn_off',
+  'toggle',
+  'set_brightness',
+  'set_color_temperature',
+  'set_color',
+  'open',
+  'close',
+  'stop',
+  'set_position',
+  'set_temperature',
+  'set_hvac_mode',
+  'set_fan_speed',
+  'lock',
+  'unlock',
+  'raw',
+] as const;
 export type Action = (typeof actions)[number];
 
 const readTools: Tool[] = [
@@ -96,6 +118,13 @@ readTools.push(
   },
 );
 
+const confirmationTool: Tool = {
+  name: 'get_confirmation',
+  description: 'Status of an action that was queued for the user to approve (pending, executed, denied, expired, failed).',
+  inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  annotations: { readOnlyHint: true, title: 'Confirmation status' },
+};
+
 const proposeTool: Tool = {
   name: 'propose_automation',
   description:
@@ -112,7 +141,10 @@ const controlTool: Tool = {
   name: 'control_device',
   description:
     'Control a device. Use a high-level action, or action "raw" with capability/command/params from get_device. ' +
-    'brightness is 0-100 %, colorTemperature in Kelvin, hue in degrees (0-360), saturation 0-100 %.',
+    'brightness is 0-100 %, colorTemperature in Kelvin, hue in degrees (0-360), saturation 0-100 %, position 0-100 % (100 = open), ' +
+    'temperature in °C, mode one of off/heat/cool/auto/dry/fan_only, percent = fan speed 0-100. ' +
+    'High-risk actions (unlock, garage doors) or anything above this token\'s risk limit are queued for the user to approve: ' +
+    'the result then says "pending_confirmation"; tell the user and check later with get_confirmation.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -122,6 +154,10 @@ const controlTool: Tool = {
       colorTemperature: { type: 'number', minimum: 1000, maximum: 20000 },
       hue: { type: 'number', minimum: 0, maximum: 360 },
       saturation: { type: 'number', minimum: 0, maximum: 100 },
+      position: { type: 'number', minimum: 0, maximum: 100 },
+      temperature: { type: 'number', minimum: 5, maximum: 35 },
+      mode: { type: 'string', enum: ['off', 'heat', 'cool', 'auto', 'dry', 'fan_only'] },
+      percent: { type: 'number', minimum: 0, maximum: 100 },
       capability: { type: 'string' },
       command: { type: 'string' },
       params: { type: 'object' },
@@ -145,7 +181,7 @@ export function createMcpServer(options: McpOptions): Server {
     return device;
   };
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: canControl ? [...readTools, controlTool, proposeTool] : readTools }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: canControl ? [...readTools, controlTool, confirmationTool, proposeTool] : readTools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
@@ -192,12 +228,30 @@ export function createMcpServer(options: McpOptions): Server {
           const device = await findDevice(target);
           if (device.exposure.agent === 'readOnly') throw new ToolError(`${device.name} is read-only for agents. Ask the user to control it.`);
           if (device.availability === 'offline') throw new ToolError(`${device.name} is offline.`);
-          const body = actionToCommand(requireStr(args.action, 'action') as Action, args);
+          let body = actionToCommand(requireStr(args.action, 'action') as Action, args);
+          const hasCapability = (cap: string) => device.endpoints.some((e) => e.capabilities.includes(cap as never));
+          // "turn on/off the AC": thermostats have modes, not an on/off switch.
+          if (body.capability === 'onOff' && !hasCapability('onOff') && hasCapability('thermostat')) {
+            body = { capability: 'thermostat', command: 'setSystemMode', params: { mode: body.command === 'off' ? 'off' : 'auto' } };
+          }
           const endpointId = endpointForTarget(device, target, body.capability);
-          await api.command(device.id, endpointId, body, `agent:${options.clientName}`).catch((err: Error) => {
+          const outcome = await api.command(device.id, endpointId, body, `agent:${options.clientName}`, options.riskLimit).catch((err: Error) => {
             throw new ToolError(err.message);
           });
+          if (outcome.status === 'pending') {
+            return json({
+              ok: false,
+              pending_confirmation: outcome.confirmation.id,
+              summary: outcome.confirmation.summary,
+              risk: outcome.confirmation.risk,
+              note: 'Not executed yet: the user must approve this in the Livynq app (expires in 5 minutes). Tell the user, then check with get_confirmation.',
+            });
+          }
           return json({ ok: true, device: device.name, endpointId, sent: body, note: 'State updates once the device confirms; call get_device to verify.' });
+        }
+        case 'get_confirmation': {
+          const c = await api.confirmation(requireStr(args.id, 'id'));
+          return json({ id: c.id, status: c.status, summary: c.summary, decidedBy: c.decidedBy, error: c.error });
         }
         case 'list_automations':
           return json(
@@ -300,6 +354,26 @@ export function actionToCommand(action: Action, args: Record<string, unknown>): 
       return { capability: 'colorControl', command: 'moveToColorTemperature', params: { colorTemperatureMireds: kelvinToMireds(num('colorTemperature')) } };
     case 'set_color':
       return { capability: 'colorControl', command: 'moveToHueAndSaturation', params: { hue: degreesToHue(num('hue')), saturation: percentToSat(num('saturation')) } };
+    case 'open':
+      return { capability: 'windowCovering', command: 'open' };
+    case 'close':
+      return { capability: 'windowCovering', command: 'close' };
+    case 'stop':
+      return { capability: 'windowCovering', command: 'stop' };
+    case 'set_position':
+      return { capability: 'windowCovering', command: 'goToPosition', params: { position: Math.round(num('position')) } };
+    case 'set_temperature':
+      return { capability: 'thermostat', command: 'setTargetTemperature', params: { temperature: num('temperature') } };
+    case 'set_hvac_mode':
+      return { capability: 'thermostat', command: 'setSystemMode', params: { mode: requireStr(args.mode, 'mode') } };
+    case 'set_fan_speed': {
+      const percent = Math.round(num('percent'));
+      return percent <= 0 ? { capability: 'onOff', command: 'off' } : { capability: 'fanControl', command: 'setPercent', params: { percent } };
+    }
+    case 'lock':
+      return { capability: 'doorLock', command: 'lock' };
+    case 'unlock':
+      return { capability: 'doorLock', command: 'unlock' };
     case 'raw':
       return {
         capability: requireStr(args.capability, 'capability'),

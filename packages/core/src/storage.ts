@@ -107,6 +107,34 @@ const migrations: string[] = [
     reverted_at INTEGER
   );
   `,
+  `
+  ALTER TABLE tokens ADD COLUMN risk_limit TEXT;
+  CREATE TABLE confirmations (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    endpoint_id INTEGER NOT NULL,
+    capability TEXT NOT NULL,
+    command TEXT NOT NULL,
+    params TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    decided_by TEXT,
+    decided_at INTEGER,
+    error TEXT
+  );
+  CREATE INDEX confirmations_status ON confirmations (status, created_at);
+  `,
+  `
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export class Storage {

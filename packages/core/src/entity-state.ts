@@ -97,6 +97,46 @@ export function computeEntityState(entity: Entity, device: Device, s: EndpointSt
       attributes.device_class = 'door';
       return result(v === undefined ? 'unknown' : v ? 'off' : 'on');
     }
+    case 'cover': {
+      const c = s.windowCovering ?? {};
+      if (c.currentPosition !== undefined) attributes.current_position = c.currentPosition;
+      if (c.currentTilt !== undefined) attributes.current_tilt_position = c.currentTilt;
+      attributes.device_class = endpoint.deviceType === 'cover.garage' ? 'garage' : endpoint.deviceType === 'cover.gate' ? 'gate' : 'curtain';
+      if (c.operationalStatus === 'opening') return result('opening');
+      if (c.operationalStatus === 'closing') return result('closing');
+      if (c.currentPosition === undefined) return result('unknown');
+      return result(Number(c.currentPosition) > 0 ? 'open' : 'closed');
+    }
+    case 'climate': {
+      const t = s.thermostat ?? {};
+      if (t.localTemperature !== undefined) attributes.current_temperature = t.localTemperature;
+      if (t.targetTemperature !== undefined) attributes.temperature = t.targetTemperature;
+      if (t.targetTemperatureLow !== undefined) attributes.target_temp_low = t.targetTemperatureLow;
+      if (t.targetTemperatureHigh !== undefined) attributes.target_temp_high = t.targetTemperatureHigh;
+      if (t.minSetpoint !== undefined) attributes.min_temp = t.minSetpoint;
+      if (t.maxSetpoint !== undefined) attributes.max_temp = t.maxSetpoint;
+      if (typeof t.supportedModes === 'string') attributes.hvac_modes = t.supportedModes.split(',').filter(Boolean);
+      if (t.runningState !== undefined) attributes.hvac_action = t.runningState === 'heating' ? 'heating' : t.runningState === 'cooling' ? 'cooling' : t.runningState === 'drying' ? 'drying' : t.runningState === 'fan' ? 'fan' : 'idle';
+      if (s.fanControl?.fanMode !== undefined) attributes.fan_mode = s.fanControl.fanMode;
+      return result(typeof t.systemMode === 'string' ? t.systemMode : 'unknown');
+    }
+    case 'fan': {
+      const on = s.onOff?.onOff;
+      if (s.fanControl?.percentCurrent !== undefined) attributes.percentage = s.fanControl.percentCurrent;
+      if (s.fanControl?.fanMode !== undefined) attributes.preset_mode = s.fanControl.fanMode;
+      return result(on === undefined ? 'unknown' : on ? 'on' : 'off');
+    }
+    case 'lock': {
+      const l = s.doorLock?.lockState;
+      return result(l === 'locked' || l === 'unlocked' || l === 'jammed' ? l : 'unknown');
+    }
+    case 'event': {
+      const g = s.genericSwitch ?? {};
+      attributes.event_types = ['single', 'double', 'long', 'release'];
+      if (g.lastEvent !== undefined) attributes.event_type = g.lastEvent;
+      if (g.lastAction !== undefined) attributes.action = g.lastAction;
+      return result(typeof g.lastEventAt === 'number' ? new Date(g.lastEventAt).toISOString() : 'unknown');
+    }
     case 'sensor': {
       for (const cap of endpoint.capabilities) {
         const meta = SENSOR_META[cap];

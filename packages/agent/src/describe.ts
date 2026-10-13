@@ -94,6 +94,44 @@ function humanState(state: Record<string, Record<string, AttributeValue>>): Reco
         case 'electricalPowerMeasurement.activePower':
           out.powerWatts = value;
           break;
+        case 'windowCovering.currentPosition':
+          out.positionPercent = value;
+          break;
+        case 'windowCovering.targetPosition':
+        case 'thermostat.minSetpoint':
+        case 'thermostat.maxSetpoint':
+        case 'genericSwitch.lastEventAt':
+          break;
+        case 'windowCovering.operationalStatus':
+          if (value !== 'stopped') out.moving = value;
+          break;
+        case 'thermostat.localTemperature':
+          out.currentTemperatureCelsius = value;
+          break;
+        case 'thermostat.targetTemperature':
+          out.targetTemperatureCelsius = value;
+          break;
+        case 'thermostat.systemMode':
+          out.mode = value;
+          break;
+        case 'thermostat.supportedModes':
+          out.supportedModes = value;
+          break;
+        case 'thermostat.runningState':
+          out.running = value;
+          break;
+        case 'fanControl.percentCurrent':
+          out.fanSpeedPercent = value;
+          break;
+        case 'fanControl.fanMode':
+          out.fanMode = value;
+          break;
+        case 'doorLock.lockState':
+          out.lock = value;
+          break;
+        case 'genericSwitch.lastEvent':
+          out.lastPress = attrs.lastEventAt ? `${value} at ${new Date(Number(attrs.lastEventAt)).toISOString()}` : value;
+          break;
         default:
           out[key] = value;
       }

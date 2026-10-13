@@ -6,12 +6,13 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, t
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
-import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type TokenInfo, type TokenScope } from '@livynq/core';
-import type { Availability, CommandBody, Device, ExposurePolicy, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
+import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type TokenInfo, type TokenScope } from '@livynq/core';
+import type { Availability, CommandBody, Device, ExposurePolicy, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
+import { registerUiRoutes, wallSettings } from './routes/ui.ts';
 import type { PluginRuntimeInfo } from '@livynq/plugin-host';
 
 declare module 'fastify' {
@@ -73,8 +74,8 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   const authenticate = (req: FastifyRequest): TokenInfo => {
     const header = req.headers.authorization;
     const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
-    // Browsers cannot set headers on WebSocket connections, so the socket may pass ?token=.
-    const query = req.url.startsWith('/api/v1/ws') ? (req.query as Record<string, string | undefined>).token : undefined;
+    // Browsers cannot set headers on WebSocket connections or CSS images, so those may pass ?token=.
+    const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/ui/wall-background') ? (req.query as Record<string, string | undefined>).token : undefined;
     const info = home.tokens.verify(bearer ?? query);
     if (!info) throw new LivynqError('UNAUTHORIZED', 'Missing or invalid access token', 'Pass "Authorization: Bearer lvq_..."');
     return info;
@@ -117,13 +118,17 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     home.registry.removeDevice((req.params as { id: string }).id);
     return reply.status(204).send();
   });
-  app.post('/api/v1/devices/:id/endpoints/:ep/commands', control, async (req) => {
+  app.post('/api/v1/devices/:id/endpoints/:ep/commands', control, async (req, reply) => {
     const { id, ep } = req.params as { id: string; ep: string };
     const body = (req.body ?? {}) as CommandBody;
     if (typeof body.capability !== 'string' || typeof body.command !== 'string') {
       throw new LivynqError('INVALID_PARAMS', 'Body must be { capability, command, params? }');
     }
-    await home.command({ deviceId: id, endpointId: Number(ep), capability: body.capability, command: body.command, params: body.params }, source(req));
+    const result = await home.confirmations.guard(
+      { deviceId: id, endpointId: Number(ep), capability: body.capability, command: body.command, params: body.params },
+      { source: source(req), riskLimit: req.auth!.riskLimit },
+    );
+    if (result.status === 'pending') return reply.status(202).send({ ok: false, pending: true, confirmation: result.confirmation });
     return { ok: true };
   });
   app.get('/api/v1/devices/:id/history', read, async (req) => {
@@ -192,9 +197,18 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   // ------------------------------------------------------------------ tokens
   app.get('/api/v1/tokens', admin, async () => home.tokens.list());
   app.post('/api/v1/tokens', admin, async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; scope?: TokenScope };
-    return reply.status(201).send(home.tokens.create(body.name ?? 'token', body.scope ?? 'read'));
+    const body = (req.body ?? {}) as { name?: string; scope?: TokenScope; riskLimit?: Risk };
+    return reply.status(201).send(home.tokens.create(body.name ?? 'token', body.scope ?? 'read', body.riskLimit));
   });
+
+  // ------------------------------------------------------------------ confirmations (human in the loop)
+  app.get('/api/v1/confirmations', read, async (req) => {
+    const status = (req.query as { status?: string }).status;
+    return home.confirmations.list(status as never);
+  });
+  app.get('/api/v1/confirmations/:id', read, async (req) => home.confirmations.get((req.params as { id: string }).id));
+  app.post('/api/v1/confirmations/:id/approve', admin, async (req) => home.confirmations.approve((req.params as { id: string }).id, `web:${req.auth!.name}`));
+  app.post('/api/v1/confirmations/:id/deny', admin, async (req) => home.confirmations.deny((req.params as { id: string }).id, `web:${req.auth!.name}`));
   app.delete('/api/v1/tokens/:id', admin, async (req, reply) => {
     home.tokens.revoke((req.params as { id: string }).id);
     return reply.status(204).send();
@@ -202,11 +216,12 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
 
   registerAutomationRoutes(app, home, { read, control, admin, source });
   registerImportRoutes(app, home, { admin, source });
+  registerUiRoutes(app, home, { read, admin });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {
     reply.hijack();
-    await handleMcpHttpRequest(req.raw, reply.raw, req.body, { api, scope: req.auth!.scope, clientName: req.auth!.name, version: VERSION });
+    await handleMcpHttpRequest(req.raw, reply.raw, req.body, { api, scope: req.auth!.scope, riskLimit: req.auth!.riskLimit, clientName: req.auth!.name, version: VERSION });
   });
 
   // ------------------------------------------------------------------ WebSocket
@@ -234,6 +249,11 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
         }
         case 'rooms.changed':
           return send({ type: 'rooms', rooms: payload as Room[] });
+        case 'confirmation':
+          return send({ type: 'confirmation', confirmation: payload as Confirmation });
+        case 'settings':
+          if ((payload as { key: string }).key === 'ui.wall') send({ type: 'settings', wall: wallSettings(home) });
+          return;
       }
     });
     socket.on('message', async (raw: Buffer) => {
@@ -246,11 +266,13 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
       if (msg?.type !== 'command' || typeof msg.id !== 'number') return;
       try {
         if (!scopeAllows(auth.scope, 'control')) throw new LivynqError('FORBIDDEN', 'Token cannot control devices');
-        await home.command(
+        const result = await home.confirmations.guard(
           { deviceId: msg.deviceId, endpointId: msg.endpointId, capability: msg.capability, command: msg.command, params: msg.params },
-          `web:${auth.name}`,
+          { source: `web:${auth.name}`, riskLimit: auth.riskLimit },
         );
-        send({ type: 'result', id: msg.id, ok: true });
+        if (result.status === 'pending') {
+          send({ type: 'result', id: msg.id, ok: false, error: { code: 'CONFIRMATION_REQUIRED', message: `Needs approval: ${result.confirmation.summary}`, hint: result.confirmation.id } });
+        } else send({ type: 'result', id: msg.id, ok: true });
       } catch (err) {
         const e = err instanceof LivynqError ? err : new LivynqError('INTERNAL', String(err));
         send({ type: 'result', id: msg.id, ok: false, error: e.toJSON() });

@@ -121,6 +121,90 @@ export const ElectricalPowerMeasurement = define({
   risk: 'low',
 });
 
+// Cover position uses 0..100 with 100 = fully open (HomeKit / Home Assistant convention);
+// Matter's WindowCovering uses percent closed, the Matter adapter/exporter inverts it.
+export const WindowCovering = define({
+  id: 'windowCovering',
+  matterCluster: 0x0102,
+  description: 'Curtains, blinds, shades, garage doors. Position 0..100, 100 = fully open',
+  attributes: {
+    currentPosition: t.int(0, 100, { unit: '%' }),
+    targetPosition: t.int(0, 100, { unit: '%' }),
+    currentTilt: t.int(0, 100, { unit: '%' }),
+    operationalStatus: t.enum(['stopped', 'opening', 'closing']),
+    obstructed: t.boolean(),
+  },
+  commands: {
+    open: t.void(),
+    close: t.void(),
+    stop: t.void(),
+    goToPosition: t.object({ position: t.int(0, 100) }, ['position']),
+    goToTilt: t.object({ tilt: t.int(0, 100) }, ['tilt']),
+  },
+  risk: 'medium',
+});
+
+export const Thermostat = define({
+  id: 'thermostat',
+  matterCluster: 0x0201,
+  description: 'Heating / cooling / air conditioning, temperatures in °C',
+  attributes: {
+    localTemperature: t.number({ unit: '°C' }),
+    targetTemperature: t.number({ unit: '°C' }),
+    targetTemperatureLow: t.number({ unit: '°C' }),
+    targetTemperatureHigh: t.number({ unit: '°C' }),
+    systemMode: t.enum(['off', 'heat', 'cool', 'auto', 'dry', 'fan_only']),
+    supportedModes: t.string('comma separated systemMode values'),
+    runningState: t.enum(['idle', 'heating', 'cooling', 'drying', 'fan']),
+    minSetpoint: t.number({ unit: '°C' }),
+    maxSetpoint: t.number({ unit: '°C' }),
+  },
+  commands: {
+    setSystemMode: t.object({ mode: t.enum(['off', 'heat', 'cool', 'auto', 'dry', 'fan_only']) }, ['mode']),
+    setTargetTemperature: t.object({ temperature: t.number({ minimum: 5, maximum: 35 }) }, ['temperature']),
+    setTemperatureRange: t.object({ low: t.number({ minimum: 5, maximum: 35 }), high: t.number({ minimum: 5, maximum: 35 }) }, ['low', 'high']),
+  },
+  risk: 'medium',
+});
+
+export const FanControl = define({
+  id: 'fanControl',
+  matterCluster: 0x0202,
+  description: 'Fan speed (percent) and mode',
+  attributes: {
+    percentCurrent: t.int(0, 100, { unit: '%' }),
+    fanMode: t.enum(['off', 'low', 'medium', 'high', 'on', 'auto']),
+  },
+  commands: {
+    setPercent: t.object({ percent: t.int(0, 100) }, ['percent']),
+    setMode: t.object({ mode: t.enum(['off', 'low', 'medium', 'high', 'on', 'auto']) }, ['mode']),
+  },
+  risk: 'low',
+});
+
+export const DoorLock = define({
+  id: 'doorLock',
+  matterCluster: 0x0101,
+  description: 'Door lock',
+  attributes: { lockState: t.enum(['locked', 'unlocked', 'jammed', 'unknown']) },
+  commands: { lock: t.void(), unlock: t.void() },
+  risk: 'high',
+});
+
+/** Stateless buttons / remotes. Each press updates lastEvent + lastEventAt (so repeated presses are distinct changes). */
+export const GenericSwitch = define({
+  id: 'genericSwitch',
+  matterCluster: 0x003b,
+  description: 'Wireless button / remote: last press',
+  attributes: {
+    lastEvent: t.enum(['single', 'double', 'long', 'release']),
+    lastEventAt: t.number({ description: 'epoch ms of the last press' }),
+    lastAction: t.string('raw action name reported by the device, e.g. "brightness_up_click"'),
+  },
+  commands: {},
+  risk: 'low',
+});
+
 export const capabilities = {
   [OnOff.id]: OnOff,
   [LevelControl.id]: LevelControl,
@@ -132,6 +216,11 @@ export const capabilities = {
   [BooleanState.id]: BooleanState,
   [PowerSource.id]: PowerSource,
   [ElectricalPowerMeasurement.id]: ElectricalPowerMeasurement,
+  [WindowCovering.id]: WindowCovering,
+  [Thermostat.id]: Thermostat,
+  [FanControl.id]: FanControl,
+  [DoorLock.id]: DoorLock,
+  [GenericSwitch.id]: GenericSwitch,
 } as const satisfies Record<string, CapabilityDefinition>;
 
 export type CapabilityId = keyof typeof capabilities;

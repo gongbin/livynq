@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 import { parseArgs } from 'node:util';
 import { actionToCommand, actions, describeCommands, endpointForTarget, serveMcpStdio, summarizeDevice, type Action } from '@livynq/agent';
-import type { TokenScope } from '@livynq/model';
+import type { Risk, TokenScope } from '@livynq/model';
 import { loadConfig, updatePluginsInConfig, type ConfigOverrides } from './config.ts';
 import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
 import { deviceRows, table } from './cli/format.ts';
@@ -46,7 +46,9 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
   automations list | get <id> | traces <id> | trigger <id> | enable <id> | disable <id> | delete <id>
   automations apply <file.yaml> [--dry-run] [--disabled]
                                 Create or update from Home Assistant style YAML
-  tokens list | tokens create <name> [--scope read|control|admin] | tokens revoke <id>
+  tokens list | tokens create <name> [--scope read|control|admin] [--risk-limit low|medium|high] | tokens revoke <id>
+                                Actions above a token's risk limit wait for approval in the app
+  confirmations list | confirmations approve <id> | confirmations deny <id>
   mcp                           MCP server over stdio (for Claude Desktop, Cursor, ...)
 
 Targets are entity ids (light.kitchen), device ids (zigbee:0x...), names or aliases.
@@ -79,6 +81,7 @@ const { values: flags, positionals } = parseArgs({
     'enable-automations': { type: 'boolean' },
     out: { type: 'string' },
     isolation: { type: 'string' },
+    'risk-limit': { type: 'string' },
     password: { type: 'string' },
     disabled: { type: 'boolean' },
     scope: { type: 'string' },
@@ -179,7 +182,11 @@ async function run(): Promise<void> {
       const c = client();
       const device = await c.device(target);
       const endpointId = endpointForTarget(device, target, body.capability);
-      await c.command(device.id, endpointId, body);
+      const outcome = await c.command(device.id, endpointId, body);
+      if (outcome.status === 'pending') {
+        process.exitCode = 6;
+        return print(`pending approval: ${outcome.confirmation.summary} (id ${outcome.confirmation.id}); approve it in the Livynq app`, { ok: false, pending: true, confirmation: outcome.confirmation });
+      }
       return print(`ok: ${device.name} ← ${body.capability}.${body.command}`, { ok: true, deviceId: device.id, endpointId, ...body });
     }
     case 'automations': {
@@ -384,6 +391,15 @@ async function run(): Promise<void> {
         list,
       );
     }
+    case 'confirmations': {
+      const c = client();
+      if ((sub === 'approve' || sub === 'deny') && rest[0]) {
+        const r = await c.request<{ status: string; summary: string; error: string | null }>('POST', `/api/v1/confirmations/${encodeURIComponent(rest[0])}/${sub}`, {});
+        return print(`${r.summary}: ${r.status}${r.error ? ` (${r.error})` : ''}`, r);
+      }
+      const list = await c.request<{ id: string; createdAt: number; status: string; summary: string; requestedBy: string; risk: string }[]>('GET', `/api/v1/confirmations${sub === 'all' ? '' : '?status=pending'}`);
+      return print(table(list.map((x) => ({ id: x.id, when: new Date(x.createdAt).toLocaleString(), status: x.status, risk: x.risk, action: x.summary, by: x.requestedBy }))), list);
+    }
     case 'rooms': {
       const rooms = await client().rooms();
       return print(table(rooms.map((r) => ({ id: r.id, name: r.name, aliases: r.aliases.join(', ') }))), rooms);
@@ -392,8 +408,9 @@ async function run(): Promise<void> {
       const c = client();
       if (sub === 'create') {
         const scope = (str('scope') ?? 'read') as TokenScope;
-        const created = await c.request<{ token: string; info: { id: string } }>('POST', '/api/v1/tokens', { name: rest[0] ?? 'token', scope });
-        return print(`${created.token}\n(shown once; scope: ${scope})`, created);
+        const riskLimit = str('risk-limit') as Risk | undefined;
+        const created = await c.request<{ token: string; info: { id: string; riskLimit: Risk } }>('POST', '/api/v1/tokens', { name: rest[0] ?? 'token', scope, riskLimit });
+        return print(`${created.token}\n(shown once; scope: ${scope}, risk limit: ${created.info.riskLimit})`, created);
       }
       if (sub === 'revoke' && rest[0]) {
         await c.request('DELETE', `/api/v1/tokens/${encodeURIComponent(rest[0])}`);
@@ -407,8 +424,8 @@ async function run(): Promise<void> {
     }
     case 'mcp': {
       const c = client();
-      const me = await c.request<{ token: { name: string; scope: TokenScope } }>('GET', '/api/v1/auth/me');
-      await serveMcpStdio({ api: c, scope: me.token.scope, clientName: me.token.name, version: VERSION });
+      const me = await c.request<{ token: { name: string; scope: TokenScope; riskLimit: Risk } }>('GET', '/api/v1/auth/me');
+      await serveMcpStdio({ api: c, scope: me.token.scope, riskLimit: me.token.riskLimit, clientName: me.token.name, version: VERSION });
       return;
     }
     default:

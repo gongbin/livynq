@@ -17,6 +17,8 @@ import { silentLogger, type Logger } from './logger.ts';
 import { Registry } from './registry.ts';
 import { Storage } from './storage.ts';
 import { TokenStore } from './tokens.ts';
+import { Confirmations } from './confirmations.ts';
+import { Settings } from './settings.ts';
 
 export interface HomeOptions {
   /** Data directory; `:memory:` keeps everything in memory (tests). */
@@ -54,6 +56,8 @@ export class Home {
   readonly bus: EventBus;
   readonly registry: Registry;
   readonly tokens: TokenStore;
+  readonly confirmations: Confirmations;
+  readonly settings: Settings;
   readonly startedAt = Date.now();
 
   readonly #adapters = new Map<string, Adapter>();
@@ -72,6 +76,8 @@ export class Home {
     this.bus = new EventBus((err, event) => this.log.error({ err, event }, 'event listener failed'));
     this.registry = new Registry(this.storage, this.bus);
     this.tokens = new TokenStore(this.storage);
+    this.confirmations = new Confirmations(this);
+    this.settings = new Settings(this.storage, this.bus);
   }
 
   get running(): boolean {
@@ -332,6 +338,28 @@ export function optimisticState(
       return { colorTemperatureMireds: params.colorTemperatureMireds as number, colorMode: 'ct' };
     case 'colorControl.moveToHueAndSaturation':
       return { currentHue: params.hue as number, currentSaturation: params.saturation as number, colorMode: 'hs' };
+    case 'windowCovering.open':
+      return { currentPosition: 100, targetPosition: 100, operationalStatus: 'stopped' };
+    case 'windowCovering.close':
+      return { currentPosition: 0, targetPosition: 0, operationalStatus: 'stopped' };
+    case 'windowCovering.goToPosition':
+      return { currentPosition: params.position as number, targetPosition: params.position as number, operationalStatus: 'stopped' };
+    case 'windowCovering.stop':
+      return { operationalStatus: 'stopped' };
+    case 'thermostat.setSystemMode':
+      return { systemMode: params.mode as string };
+    case 'thermostat.setTargetTemperature':
+      return { targetTemperature: params.temperature as number };
+    case 'thermostat.setTemperatureRange':
+      return { targetTemperatureLow: params.low as number, targetTemperatureHigh: params.high as number };
+    case 'fanControl.setPercent':
+      return { percentCurrent: params.percent as number };
+    case 'fanControl.setMode':
+      return { fanMode: params.mode as string };
+    case 'doorLock.lock':
+      return { lockState: 'locked' };
+    case 'doorLock.unlock':
+      return { lockState: 'unlocked' };
     default:
       return undefined;
   }

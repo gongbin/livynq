@@ -1,7 +1,7 @@
-import type { CapabilityId } from './capabilities.ts';
+import type { CapabilityId, Risk } from './capabilities.ts';
 
 /** Home Assistant style entity domain, used for the entity view and HA compatibility. */
-export type EntityDomain = 'light' | 'switch' | 'sensor' | 'binary_sensor';
+export type EntityDomain = 'light' | 'switch' | 'sensor' | 'binary_sensor' | 'cover' | 'climate' | 'fan' | 'lock' | 'event';
 
 export interface DeviceTypeDefinition {
   id: string;
@@ -11,6 +11,8 @@ export interface DeviceTypeDefinition {
   domain: EntityDomain;
   required: readonly CapabilityId[];
   optional: readonly CapabilityId[];
+  /** Raises the risk of this device type's commands above its capabilities' (e.g. garage doors). */
+  risk?: Risk;
 }
 
 function define<const D extends DeviceTypeDefinition>(d: D): D {
@@ -32,6 +34,14 @@ export const DeviceTypes = {
   OccupancySensor: define({ id: 'binarySensor.occupancy', matterDeviceType: 0x0107, label: 'Occupancy Sensor', domain: 'binary_sensor', required: ['occupancySensing'], optional: [] }),
   ContactSensor: define({ id: 'binarySensor.contact', matterDeviceType: 0x0015, label: 'Contact Sensor', domain: 'binary_sensor', required: ['booleanState'], optional: [] }),
   LeakSensor: define({ id: 'binarySensor.leak', matterDeviceType: 0x0043, label: 'Water Leak Detector', domain: 'binary_sensor', required: ['booleanState'], optional: [] }),
+  WindowCovering: define({ id: 'cover.window', matterDeviceType: 0x0202, label: 'Window Covering', domain: 'cover', required: ['windowCovering'], optional: [] }),
+  GarageDoor: define({ id: 'cover.garage', label: 'Garage Door', domain: 'cover', required: ['windowCovering'], optional: [], risk: 'high' }),
+  Gate: define({ id: 'cover.gate', label: 'Gate', domain: 'cover', required: ['windowCovering'], optional: [], risk: 'high' }),
+  Thermostat: define({ id: 'climate.thermostat', matterDeviceType: 0x0301, label: 'Thermostat', domain: 'climate', required: ['thermostat'], optional: ['fanControl'] }),
+  AirConditioner: define({ id: 'climate.airConditioner', matterDeviceType: 0x0072, label: 'Air Conditioner', domain: 'climate', required: ['thermostat'], optional: ['fanControl'] }),
+  Fan: define({ id: 'fan.fan', matterDeviceType: 0x002b, label: 'Fan', domain: 'fan', required: ['onOff', 'fanControl'], optional: [] }),
+  DoorLock: define({ id: 'lock.door', matterDeviceType: 0x000a, label: 'Door Lock', domain: 'lock', required: ['doorLock'], optional: [] }),
+  GenericSwitch: define({ id: 'event.button', matterDeviceType: 0x000f, label: 'Button', domain: 'event', required: ['genericSwitch'], optional: [] }),
 } as const satisfies Record<string, DeviceTypeDefinition>;
 
 export type DeviceTypeId = (typeof DeviceTypes)[keyof typeof DeviceTypes]['id'];
@@ -44,4 +54,16 @@ export function getDeviceType(id: string): DeviceTypeDefinition | undefined {
 
 export function listDeviceTypes(): DeviceTypeDefinition[] {
   return [...byId.values()];
+}
+
+const riskRank: Record<Risk, number> = { low: 0, medium: 1, high: 2 };
+
+/** Effective risk of commanding a capability on an endpoint of the given device type. */
+export function commandRisk(capabilityRisk: Risk, deviceType: string): Risk {
+  const typeRisk = getDeviceType(deviceType)?.risk;
+  return typeRisk && riskRank[typeRisk] > riskRank[capabilityRisk] ? typeRisk : capabilityRisk;
+}
+
+export function riskAtMost(risk: Risk, limit: Risk): boolean {
+  return riskRank[risk] <= riskRank[limit];
 }

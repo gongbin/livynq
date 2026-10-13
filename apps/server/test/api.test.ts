@@ -122,3 +122,25 @@ test('automations: YAML create, validate, scopes, proposals, trigger, traces, we
   await app.close();
   await home.stop();
 });
+
+test('wall panel settings and background image are shared hub-wide', async () => {
+  const { app, home, admin, reader, req } = await setup();
+  assert.deepEqual((await req('GET', '/api/v1/ui/settings', reader)).json().wall, { background: null, cardOpacity: 0.72, backgroundBlur: 0, backgroundDim: 0.25 });
+  assert.equal((await req('PATCH', '/api/v1/ui/settings', admin, { wall: { cardOpacity: 0.1 } })).statusCode, 400);
+  assert.equal((await req('PATCH', '/api/v1/ui/settings', reader, { wall: { cardOpacity: 0.5 } })).statusCode, 403);
+  assert.equal((await req('PATCH', '/api/v1/ui/settings', admin, { wall: { cardOpacity: 0.5, backgroundBlur: 8 } })).json().wall.cardOpacity, 0.5);
+
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5a1a0d10000000049454e44ae426082', 'hex');
+  const up = await app.inject({ method: 'PUT', url: '/api/v1/ui/wall-background', payload: png, headers: { authorization: `Bearer ${admin}`, 'content-type': 'image/png' } });
+  assert.equal(up.statusCode, 200);
+  const url = up.json().wall.background.url as string;
+  assert.match(url, /^\/api\/v1\/ui\/wall-background\?v=\d+$/);
+  const img = await app.inject({ method: 'GET', url: `${url}&token=${reader}` });
+  assert.equal(img.headers['content-type'], 'image/png');
+  assert.deepEqual(img.rawPayload, png);
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/v1/ui/wall-background', payload: 'x', headers: { authorization: `Bearer ${admin}`, 'content-type': 'text/plain' } })).statusCode, 400);
+  assert.equal((await req('DELETE', '/api/v1/ui/wall-background', admin)).json().wall.background, null);
+  assert.equal((await app.inject({ method: 'GET', url: `/api/v1/ui/wall-background?token=${reader}` })).statusCode, 404);
+  await app.close();
+  await home.stop();
+});

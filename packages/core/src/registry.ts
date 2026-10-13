@@ -230,7 +230,8 @@ export class Registry {
       const domain = domainForDeviceType(ep.deviceType);
       const base = suggestEntityId(domain, {
         name: device.name,
-        endpointName: device.endpoints.length > 1 ? ep.name ?? String(ep.id) : undefined,
+        // An unnamed endpoint is the device's main function (e.g. the lock next to its battery).
+        endpointName: device.endpoints.length > 1 ? ep.name : undefined,
         fallback: `${device.id.replace(':', ' ')} ${device.endpoints.length > 1 ? ep.id : ''}`,
       });
       let entityId = base;

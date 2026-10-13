@@ -9,7 +9,7 @@ test('bridge identity and accessory ids are stable across restarts and removals'
   const port = 52000 + Math.floor(Math.random() * 1000);
   try {
     const first = await run(dir, port);
-    assert.equal(Object.keys(first.ids).length, 6);
+    assert.equal(Object.keys(first.ids).length, 11);
     assert.match(first.bridge.pincode, /^\d{3}-\d{2}-\d{3}$/);
     assert.match(first.bridge.setupURI, /^X-HM:\/\//);
 

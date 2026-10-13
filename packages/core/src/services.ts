@@ -26,7 +26,13 @@ const SUPPORTED: Record<string, string[]> = {
   light: ['turn_on', 'turn_off', 'toggle'],
   switch: ['turn_on', 'turn_off', 'toggle'],
   homeassistant: ['turn_on', 'turn_off', 'toggle'],
+  cover: ['open_cover', 'close_cover', 'stop_cover', 'toggle', 'set_cover_position', 'set_cover_tilt_position'],
+  climate: ['set_temperature', 'set_hvac_mode', 'turn_on', 'turn_off'],
+  fan: ['turn_on', 'turn_off', 'toggle', 'set_percentage', 'set_preset_mode'],
+  lock: ['lock', 'unlock'],
 };
+
+const GENERIC_DOMAINS = new Set(['light', 'switch', 'fan']);
 
 export function listServices(): Record<string, string[]> {
   return SUPPORTED;
@@ -63,8 +69,8 @@ export async function callService(home: Home, call: ServiceCall, source: string)
   // HA also accepts entity_id inside data.
   const target: ServiceTarget = { ...call.target };
   if (call.data?.entity_id && !target.entity_id) target.entity_id = call.data.entity_id as string | string[];
-  const entities = resolveTarget(home, target).filter((e) => (domain === 'homeassistant' ? e.domain === 'light' || e.domain === 'switch' : e.domain === domain));
-  if (!entities.length) throw new LivynqError('NOT_FOUND', `No ${domain === 'homeassistant' ? 'light/switch' : domain} entities in target`);
+  const entities = resolveTarget(home, target).filter((e) => (domain === 'homeassistant' ? GENERIC_DOMAINS.has(e.domain) : e.domain === domain));
+  if (!entities.length) throw new LivynqError('NOT_FOUND', `No ${domain === 'homeassistant' ? 'light/switch/fan' : domain} entities in target`);
 
   const data = call.data ?? {};
   let commands = 0;
@@ -94,6 +100,61 @@ function commandsFor(home: Home, entity: Entity, service: string, data: Record<s
   const transitionTime = typeof data.transition === 'number' ? Math.round(data.transition * 10) : undefined;
   const withTransition = (params: Record<string, unknown>) => (transitionTime === undefined ? params : { ...params, transitionTime });
 
+  const num = (key: string) => {
+    const v = data[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new LivynqError('INVALID_PARAMS', `${key} (number) is required`);
+    return v;
+  };
+  switch (entity.domain) {
+    case 'cover': {
+      const position = home.registry.getAttribute(entity.deviceId, entity.endpointId, 'windowCovering', 'currentPosition');
+      switch (service) {
+        case 'open_cover':
+          return [{ ...base, capability: 'windowCovering', command: 'open' }];
+        case 'close_cover':
+          return [{ ...base, capability: 'windowCovering', command: 'close' }];
+        case 'stop_cover':
+          return [{ ...base, capability: 'windowCovering', command: 'stop' }];
+        case 'toggle':
+          return [{ ...base, capability: 'windowCovering', command: Number(position ?? 0) > 0 ? 'close' : 'open' }];
+        case 'set_cover_position':
+          return [{ ...base, capability: 'windowCovering', command: 'goToPosition', params: { position: Math.round(num('position')) } }];
+        case 'set_cover_tilt_position':
+          return [{ ...base, capability: 'windowCovering', command: 'goToTilt', params: { tilt: Math.round(num('tilt_position')) } }];
+      }
+      break;
+    }
+    case 'climate': {
+      const out: CommandRequest[] = [];
+      const mode = (m: unknown) => ({ ...base, capability: 'thermostat', command: 'setSystemMode', params: { mode: String(m) } });
+      if (service === 'turn_off') return [mode('off')];
+      if (service === 'turn_on') {
+        const supported = String(home.registry.getAttribute(entity.deviceId, entity.endpointId, 'thermostat', 'supportedModes') ?? 'auto').split(',');
+        return [mode(supported.includes('auto') ? 'auto' : (supported.find((m) => m !== 'off') ?? 'heat'))];
+      }
+      if (service === 'set_hvac_mode') return [mode(data.hvac_mode)];
+      if (data.hvac_mode !== undefined) out.push(mode(data.hvac_mode));
+      if (typeof data.temperature === 'number') out.push({ ...base, capability: 'thermostat', command: 'setTargetTemperature', params: { temperature: data.temperature } });
+      if (typeof data.target_temp_low === 'number' || typeof data.target_temp_high === 'number') {
+        out.push({ ...base, capability: 'thermostat', command: 'setTemperatureRange', params: { low: num('target_temp_low'), high: num('target_temp_high') } });
+      }
+      if (!out.length) throw new LivynqError('INVALID_PARAMS', 'set_temperature needs temperature or target_temp_low/target_temp_high');
+      return out;
+    }
+    case 'lock':
+      return [{ ...base, capability: 'doorLock', command: service === 'lock' ? 'lock' : 'unlock' }];
+    case 'fan': {
+      if (service === 'set_percentage' || (service === 'turn_on' && typeof data.percentage === 'number')) {
+        const percent = Math.round(num('percentage'));
+        if (percent <= 0) return [{ ...base, capability: 'onOff', command: 'off' }];
+        return [...(isOn ? [] : [{ ...base, capability: 'onOff', command: 'on' }]), { ...base, capability: 'fanControl', command: 'setPercent', params: { percent } }];
+      }
+      if (service === 'set_preset_mode' || (service === 'turn_on' && typeof data.preset_mode === 'string')) {
+        return [{ ...base, capability: 'fanControl', command: 'setMode', params: { mode: String(data.preset_mode) } }];
+      }
+      break;
+    }
+  }
   if (service === 'turn_off') return [{ ...base, capability: 'onOff', command: 'off' }];
   if (service === 'toggle') return [{ ...base, capability: 'onOff', command: 'toggle' }];
 

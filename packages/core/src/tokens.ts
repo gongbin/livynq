@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Storage } from './storage.ts';
-import type { TokenScope } from '@livynq/model';
+import type { Risk, TokenScope } from '@livynq/model';
 import { LivynqError } from './errors.ts';
 
 export type { TokenScope };
@@ -10,6 +10,8 @@ export interface TokenInfo {
   id: string;
   name: string;
   scope: TokenScope;
+  /** Commands above this risk need a human confirmation. */
+  riskLimit: Risk;
   createdAt: number;
   lastUsedAt: number | null;
 }
@@ -28,13 +30,14 @@ export class TokenStore {
     this.#storage = storage;
   }
 
-  create(name: string, scope: TokenScope): { token: string; info: TokenInfo } {
+  create(name: string, scope: TokenScope, riskLimit?: Risk): { token: string; info: TokenInfo } {
     if (!(scope in scopeRank)) throw new LivynqError('INVALID_PARAMS', `Unknown scope ${scope}`);
+    if (riskLimit !== undefined && !['low', 'medium', 'high'].includes(riskLimit)) throw new LivynqError('INVALID_PARAMS', `Unknown risk limit ${riskLimit}`);
     const token = `lvq_${randomBytes(24).toString('base64url')}`;
-    const info: TokenInfo = { id: randomUUID(), name: name.trim() || 'token', scope, createdAt: Date.now(), lastUsedAt: null };
+    const info: TokenInfo = { id: randomUUID(), name: name.trim() || 'token', scope, riskLimit: riskLimit ?? defaultRiskLimit(scope), createdAt: Date.now(), lastUsedAt: null };
     this.#storage
-      .sql('INSERT INTO tokens (id, name, scope, hash, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(info.id, info.name, info.scope, hash(token), info.createdAt);
+      .sql('INSERT INTO tokens (id, name, scope, hash, created_at, risk_limit) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(info.id, info.name, info.scope, hash(token), info.createdAt, info.riskLimit);
     return { token, info };
   }
 
@@ -61,11 +64,17 @@ export class TokenStore {
   }
 }
 
+/** Admins (the web UI) may do anything; agents and scripts need a human for high-risk actions. */
+export function defaultRiskLimit(scope: TokenScope): Risk {
+  return scope === 'admin' ? 'high' : 'medium';
+}
+
 function toInfo(row: Record<string, string | number | null>): TokenInfo {
   return {
     id: String(row.id),
     name: String(row.name),
     scope: row.scope as TokenScope,
+    riskLimit: (row.risk_limit as Risk | null) ?? defaultRiskLimit(row.scope as TokenScope),
     createdAt: Number(row.created_at),
     lastUsedAt: row.last_used_at === null ? null : Number(row.last_used_at),
   };

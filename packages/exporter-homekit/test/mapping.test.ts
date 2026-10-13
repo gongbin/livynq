@@ -60,3 +60,28 @@ test('multi-channel devices are split into one accessory per channel; sensors st
   const single = accessoriesFor(device([{ id: 1, deviceType: DeviceTypes.OnOffSwitch.id, capabilities: ['onOff'] }]));
   assert.deepEqual(single.map((a) => a.key), ['test:x'], 'single-channel devices keep their accessory key');
 });
+
+test('covers, garage doors, thermostats, fans, locks and buttons', () => {
+  const layout = (d: Device, state = {}) => servicesFor(d, state).map((p) => `${p.service}[${p.characteristics.map((c) => c.name).join(',')}]`);
+  assert.deepEqual(layout(device([{ id: 1, deviceType: DeviceTypes.WindowCovering.id, capabilities: ['windowCovering'] }])), ['WindowCovering[CurrentPosition,TargetPosition,PositionState]']);
+  assert.deepEqual(layout(device([{ id: 1, deviceType: DeviceTypes.GarageDoor.id, capabilities: ['windowCovering'] }])), ['GarageDoorOpener[CurrentDoorState,TargetDoorState,ObstructionDetected]']);
+  assert.deepEqual(layout(device([{ id: 1, deviceType: DeviceTypes.Fan.id, capabilities: ['onOff', 'fanControl'] }])), ['Fanv2[Active,RotationSpeed]']);
+  assert.deepEqual(layout(device([{ id: 1, deviceType: DeviceTypes.DoorLock.id, capabilities: ['doorLock'] }])), ['LockMechanism[LockCurrentState,LockTargetState]']);
+
+  const ac = device([{ id: 1, deviceType: DeviceTypes.AirConditioner.id, capabilities: ['thermostat'] }]);
+  const [thermostat] = servicesFor(ac, { 1: { thermostat: { supportedModes: 'off,cool,dry' } } });
+  const target = thermostat!.characteristics.find((c) => c.name === 'TargetHeatingCoolingState')!;
+  assert.deepEqual(target.props, { validValues: [0, 2] }, 'only modes the AC supports');
+  assert.equal(target.read({ thermostat: { systemMode: 'dry' } }), 3);
+  assert.deepEqual(target.write!.commands({ TargetHeatingCoolingState: 2 }, {}), [{ capability: 'thermostat', command: 'setSystemMode', params: { mode: 'cool' } }]);
+
+  const [cover] = servicesFor(device([{ id: 1, deviceType: DeviceTypes.WindowCovering.id, capabilities: ['windowCovering'] }]));
+  assert.equal(cover!.characteristics[2]!.read({ windowCovering: { operationalStatus: 'closing' } }), 0);
+  assert.deepEqual(cover!.characteristics[1]!.write!.commands({ TargetPosition: 40 }, {}), [{ capability: 'windowCovering', command: 'goToPosition', params: { position: 40 } }]);
+
+  const [button] = servicesFor(device([{ id: 1, deviceType: DeviceTypes.GenericSwitch.id, capabilities: ['genericSwitch'] }]));
+  const press = button!.characteristics[0]!;
+  assert.deepEqual(press.eventOn, { capability: 'genericSwitch', attribute: 'lastEventAt' }, 'event-only: never replayed');
+  assert.equal(press.read({ genericSwitch: { lastEvent: 'double' } }), 1);
+  assert.equal(press.read({}), null);
+});

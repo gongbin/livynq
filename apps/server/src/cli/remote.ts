@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CommandBody, DeviceDTO, Room, SystemInfo } from '@livynq/model';
+import type { CommandBody, ConfirmationDTO, DeviceDTO, Room, SystemInfo } from '@livynq/model';
 import type { HistoryPoint } from '@livynq/core';
-import type { DeviceFilter, HistoryQuery, HomeApi } from '@livynq/agent';
+import type { CommandOutcome, DeviceFilter, HistoryQuery, HomeApi } from '@livynq/agent';
 import type { AutomationInfo, Trace } from '@livynq/automation';
 
 export class ApiError extends Error {
@@ -79,9 +79,18 @@ export class RemoteClient implements HomeApi {
     return this.request<HistoryPoint[]>('GET', `/api/v1/devices/${encodeURIComponent(ref)}/history?${qs}`);
   }
 
-  async command(deviceId: string, endpointId: number, body: CommandBody) {
-    // The server records the token name as the source.
-    await this.request('POST', `/api/v1/devices/${encodeURIComponent(deviceId)}/endpoints/${endpointId}/commands`, body);
+  /** The server applies this token's own source name and risk limit. */
+  async command(deviceId: string, endpointId: number, body: CommandBody): Promise<CommandOutcome> {
+    const r = await this.request<{ ok: boolean; pending?: boolean; confirmation?: ConfirmationDTO }>(
+      'POST',
+      `/api/v1/devices/${encodeURIComponent(deviceId)}/endpoints/${endpointId}/commands`,
+      body,
+    );
+    return r.pending && r.confirmation ? { status: 'pending', confirmation: r.confirmation } : { status: 'executed' };
+  }
+
+  confirmation(id: string) {
+    return this.request<ConfirmationDTO>('GET', `/api/v1/confirmations/${encodeURIComponent(id)}`);
   }
 
   automations() {

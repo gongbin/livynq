@@ -11,8 +11,11 @@ test('more accessories than fit on one bridge: extra bridges with persistent ass
   const port = 53000 + Math.floor(Math.random() * 1000);
   try {
     const first = await run(dir, port, undefined, 2);
-    assert.deepEqual(first.bridges.map((b) => [b.id, b.port, b.accessoryCount]), [['main', port, 2], ['bridge-2', port + 1, 2], ['bridge-3', port + 2, 2]]);
-    assert.equal(new Set(first.bridges.map((b) => b.setupURI)).size, 3, 'each bridge pairs separately');
+    // 11 demo accessories, 2 per bridge → 6 bridges on consecutive ports
+    assert.deepEqual(first.bridges.map((b) => [b.id, b.port, b.accessoryCount]), [
+      ['main', port, 2], ['bridge-2', port + 1, 2], ['bridge-3', port + 2, 2], ['bridge-4', port + 3, 2], ['bridge-5', port + 4, 2], ['bridge-6', port + 5, 1],
+    ]);
+    assert.equal(new Set(first.bridges.map((b) => b.setupURI)).size, 6, 'each bridge pairs separately');
 
     // Hide a device on the first bridge: a newly exposed device must not take its seat permanently,
     // and when it comes back it returns to its own bridge with its own AID.

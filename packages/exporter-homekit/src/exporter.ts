@@ -97,7 +97,7 @@ export class HomeKitExporter implements Exporter {
       home.bus.on('device.added', (d) => this.#sync(d)),
       home.bus.on('device.updated', (d) => this.#sync(d)),
       home.bus.on('device.removed', ({ id }) => this.#removeDevice(id)),
-      home.bus.on('state', (c) => this.#refresh(c.deviceId, c.endpointId)),
+      home.bus.on('state', (c) => this.#refresh(c.deviceId, c.endpointId, c)),
       home.bus.on('availability', ({ deviceId }) => this.#refreshAll(deviceId)),
     );
     this.#started = true;
@@ -215,14 +215,14 @@ export class HomeKitExporter implements Exporter {
   // ---------------------------------------------------------------- accessories
 
   #sync(device: Device, initial = false): void {
-    const plans = device.exposure.homekit ? accessoriesFor(device) : [];
+    const plans = device.exposure.homekit ? accessoriesFor(device, this.#home.registry.getState(device.id)) : [];
     const wanted = new Set(plans.map((p) => p.key));
     for (const key of this.#byDevice.get(device.id) ?? []) if (!wanted.has(key)) this.#remove(key);
     for (const plan of plans) this.#syncAccessory(device, plan, initial);
   }
 
   #syncAccessory(device: Device, plan: AccessoryPlan, initial: boolean): void {
-    const signature = JSON.stringify(plan.services.map((p) => [p.key, p.service, p.characteristics.map((c) => c.name)]));
+    const signature = JSON.stringify(plan.services.map((p) => [p.key, p.service, p.characteristics.map((c) => [c.name, c.props])]));
     const existing = this.#exposed.get(plan.key);
     if (existing && existing.signature === signature) {
       existing.accessory.getService(Service.AccessoryInformation)?.updateCharacteristic(Characteristic.Name, plan.name);
@@ -287,19 +287,29 @@ export class HomeKitExporter implements Exporter {
     this.#byDevice.delete(id);
   }
 
-  #read(deviceId: DeviceId, endpointId: number, binding: CharacteristicBinding): CharacteristicValue {
+  /** Event-only characteristics read as null, which HAP allows. */
+  #read(deviceId: DeviceId, endpointId: number, binding: CharacteristicBinding): CharacteristicValue | null {
     const device = this.#home.registry.getDevice(deviceId);
     if (!device || device.availability === 'offline') throw new HapStatusError(COMMUNICATION_FAILURE);
     return binding.read(this.#home.registry.getState(deviceId)[endpointId] ?? {});
   }
 
-  #refresh(deviceId: DeviceId, endpointId: number): void {
+  #refresh(deviceId: DeviceId, endpointId: number, change?: { capability: string; attribute: string }): void {
     const device = this.#home.registry.getDevice(deviceId);
     if (!device) return;
     const state = this.#home.registry.getState(deviceId)[endpointId] ?? {};
     for (const key of this.#byDevice.get(deviceId) ?? []) {
       for (const { characteristic, binding } of this.#exposed.get(key)?.bindings.get(endpointId) ?? []) {
-        characteristic.updateValue(device.availability === 'offline' ? new HapStatusError(COMMUNICATION_FAILURE) : binding.read(state));
+        if (binding.eventOn) {
+          // Button presses: only a fresh press is an event; never replay on refresh/reconnect.
+          if (change?.capability !== binding.eventOn.capability || change.attribute !== binding.eventOn.attribute || device.availability === 'offline') continue;
+          const value = binding.read(state);
+          if (value !== null) characteristic.sendEventNotification(value);
+          continue;
+        }
+        const value = binding.read(state);
+        if (device.availability === 'offline') characteristic.updateValue(new HapStatusError(COMMUNICATION_FAILURE));
+        else if (value !== null) characteristic.updateValue(value);
       }
     }
   }
