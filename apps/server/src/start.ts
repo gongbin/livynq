@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import pino from 'pino';
-import { DemoAdapter, Home } from '@livynq/core';
+import { DemoAdapter, Home, writeAutomaticBackup } from '@livynq/core';
 import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
 import { AutomationEngine } from '@livynq/automation';
@@ -60,6 +60,22 @@ export async function startLivynq(config: LivynqConfig): Promise<RunningInstance
   if (firstRun) {
     // Shown once; afterwards use `livynq login-url` on this machine.
     logger.info(`Open the web UI: ${url}/#token=${firstRun}`);
+  }
+
+  if (config.backup.automatic) {
+    const backup = () => {
+      try {
+        logger.info({ file: writeAutomaticBackup(home, VERSION, config.backup.keep) }, 'automatic backup written');
+      } catch (err) {
+        logger.error({ err }, 'automatic backup failed');
+      }
+    };
+    const first = setTimeout(backup, 10 * 60_000).unref();
+    const daily = setInterval(backup, 24 * 3600_000).unref();
+    closers.push(async () => {
+      clearTimeout(first);
+      clearInterval(daily);
+    });
   }
 
   return {

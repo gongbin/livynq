@@ -5,11 +5,12 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, t
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
-import { Home, LivynqError, scopeAllows, toDeviceDTO, type TokenInfo, type TokenScope } from '@livynq/core';
+import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type TokenInfo, type TokenScope } from '@livynq/core';
 import type { Availability, CommandBody, Device, ExposurePolicy, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
+import { registerImportRoutes } from './routes/imports.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -135,6 +136,15 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const provider = home.exporter('homekit') as unknown as HomeKitInfoProvider | undefined;
     return { enabled: Boolean(provider), bridges: provider?.bridges() ?? [] };
   });
+  app.post('/api/v1/system/backup', admin, async (req, reply) => {
+    const body = (req.body ?? {}) as { password?: string };
+    if (body.password !== undefined && (typeof body.password !== 'string' || body.password.length < 8)) {
+      throw new LivynqError('INVALID_PARAMS', 'password must be at least 8 characters');
+    }
+    const { data } = createBackup(home, { version: VERSION, password: body.password });
+    const name = `livynq-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}${body.password ? '.lvqbak' : '.tar.gz'}`;
+    return reply.header('content-type', 'application/octet-stream').header('content-disposition', `attachment; filename="${name}"`).send(data);
+  });
   app.get('/api/v1/commands/recent', read, async (req) => {
     const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 50));
     return home.recentCommands(limit);
@@ -152,6 +162,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   });
 
   registerAutomationRoutes(app, home, { read, control, admin, source });
+  registerImportRoutes(app, home, { admin, source });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {

@@ -196,6 +196,9 @@ importers:
       '@livynq/exporter-homekit':
         specifier: workspace:*
         version: link:../../packages/exporter-homekit
+      '@livynq/importer-homeassistant':
+        specifier: workspace:*
+        version: link:../../packages/importer-homeassistant
       '@livynq/model':
         specifier: workspace:*
         version: link:../../packages/model
@@ -226,6 +229,9 @@ importers:
       uqr:
         specifier: 0.1.3
         version: 0.1.3
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
     devDependencies:
       '@tailwindcss/vite':
         specifier: 4.3.3
@@ -305,6 +311,21 @@ importers:
       hap-nodejs:
         specifier: ^0.14.3
         version: 0.14.3
+
+  packages/importer-homeassistant:
+    dependencies:
+      '@livynq/automation':
+        specifier: workspace:*
+        version: link:../automation
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../core
+      '@livynq/model':
+        specifier: workspace:*
+        version: link:../model
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
 
   packages/model: {}
 

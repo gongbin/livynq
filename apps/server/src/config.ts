@@ -11,6 +11,7 @@ export interface LivynqConfig {
   mqtt: { enabled: boolean; url: string; username?: string; password?: string; discoveryPrefix: string; broker: { builtin: boolean; port: number } };
   logLevel: string;
   location?: { latitude: number; longitude: number };
+  backup: { automatic: boolean; keep: number };
 }
 
 export interface ConfigOverrides {
@@ -62,6 +63,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
       broker: { builtin, port: brokerPort },
     },
     logLevel: overrides.logLevel ?? env.LIVYNQ_LOG_LEVEL ?? yaml.logLevel ?? 'info',
+    backup: { automatic: yaml.backup?.automatic ?? true, keep: Number(yaml.backup?.keep ?? 7) },
     location:
       Number.isFinite(Number(yaml.location?.latitude)) && Number.isFinite(Number(yaml.location?.longitude))
         ? { latitude: Number(yaml.location.latitude), longitude: Number(yaml.location.longitude) }

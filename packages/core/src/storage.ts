@@ -96,6 +96,17 @@ const migrations: string[] = [
   );
   CREATE INDEX automation_traces_lookup ON automation_traces (automation_id, started_at);
   `,
+  `
+  CREATE TABLE imports (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    report TEXT NOT NULL,
+    undo TEXT NOT NULL,
+    reverted_at INTEGER
+  );
+  `,
 ];
 
 export class Storage {

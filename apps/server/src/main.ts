@@ -6,6 +6,9 @@ import { loadConfig, type ConfigOverrides } from './config.ts';
 import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
 import { deviceRows, table } from './cli/format.ts';
 import { VERSION } from './version.ts';
+import type { ImportPlan } from '@livynq/importer-homeassistant';
+
+type HaReport = Omit<ImportPlan, 'operations'>;
 
 const HELP = `livynq ${VERSION} — lightweight, local-first smart home hub
 
@@ -29,6 +32,12 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
                                 Actions: ${actions.filter((a) => a !== 'raw').join(', ')}
   call <target> <capability>.<command> [--params JSON]
   rooms list
+  import ha <dir|backup.tar> [--dry-run] [--enable-automations]
+                                Import areas, devices, entity ids and automations from Home Assistant
+  imports list | imports revert <id>
+  backup create [--out file] [--password P]    Download a backup from the running hub
+  backup restore <file> [--password P]         Restore into the data dir (stop the hub first)
+  backup inspect <file> [--password P]
   automations list | get <id> | traces <id> | trigger <id> | enable <id> | disable <id> | delete <id>
   automations apply <file.yaml> [--dry-run] [--disabled]
                                 Create or update from Home Assistant style YAML
@@ -62,6 +71,9 @@ const { values: flags, positionals } = parseArgs({
     domain: { type: 'string' },
     q: { type: 'string' },
     'dry-run': { type: 'boolean' },
+    'enable-automations': { type: 'boolean' },
+    out: { type: 'string' },
+    password: { type: 'string' },
     disabled: { type: 'boolean' },
     scope: { type: 'string' },
     params: { type: 'string' },
@@ -244,6 +256,88 @@ async function run(): Promise<void> {
         default:
           throw new ApiError(400, 'INVALID_PARAMS', `Unknown subcommand automations ${sub}`);
       }
+    }
+    case 'import': {
+      if (sub !== 'ha' && sub !== 'homeassistant') throw new ApiError(400, 'INVALID_PARAMS', 'Usage: livynq import ha <dir|backup.tar> [--dry-run]');
+      if (!rest[0]) throw new ApiError(400, 'INVALID_PARAMS', 'Missing path to the Home Assistant config directory or backup');
+      const { resolve } = await import('node:path');
+      const path = resolve(rest[0]);
+      const c = client();
+      const dryRun = Boolean(flags['dry-run']);
+      const result = dryRun
+        ? { report: await c.request<HaReport>('POST', '/api/v1/imports/homeassistant/plan', { path }) }
+        : await c.request<{ import: { id: string; applied: { failed: unknown[] } }; report: HaReport }>('POST', '/api/v1/imports/homeassistant/apply', {
+            path,
+            enableAutomations: Boolean(flags['enable-automations']),
+          });
+      const r = result.report;
+      const lines = [
+        `Home Assistant ${r.haVersion ?? '?'} — ${r.source}`,
+        `rooms: ${r.rooms.map((x) => `${x.name}${x.action === 'create' ? ' (new)' : ''}`).join(', ') || 'none'}`,
+        `devices: ${r.summary.devicesMatched} matched, ${r.summary.devicesPending} pending, ${r.summary.devicesUnsupported} unsupported · entity ids adopted from HA: ${r.summary.entityRenames}`,
+        ...r.devices.filter((d) => d.status !== 'matched').map((d) => `  · ${d.name} [${d.status}] ${d.reason ?? ''}`),
+        `automations: ${r.summary.automations} importable, ${r.summary.automationsInvalid} need changes${dryRun ? '' : flags['enable-automations'] ? ' (imported enabled)' : ' (imported disabled)'}`,
+        ...r.automations.filter((a) => a.status !== 'import').map((a) => `  · ${a.alias} [${a.status}] ${a.errors.join('; ')}`),
+        ...r.automations.filter((a) => a.missingEntities.length).map((a) => `  · ${a.alias}: unknown entities ${a.missingEntities.join(', ')}`),
+        `not imported yet: ${r.notImported.scripts} scripts, ${r.notImported.scenes} scenes, ${r.notImported.blueprints} blueprints, ${r.notImported.floors} floors`,
+        ...(r.location ? [`location (add to livynq.yaml): latitude ${r.location.latitude}, longitude ${r.location.longitude}`] : []),
+        ...r.warnings.map((w) => `warning: ${w}`),
+        dryRun ? '\nDry run: nothing changed. Run without --dry-run to apply.' : `\nImported. Undo with: livynq imports revert ${'import' in result ? result.import.id : ''}`,
+      ];
+      return print(lines.join('\n'), result);
+    }
+    case 'backup': {
+      const { readFileSync, writeFileSync } = await import('node:fs');
+      const { readBackupManifest, restoreBackup } = await import('@livynq/core');
+      if (sub === 'create') {
+        const config = loadConfig(overrides());
+        const remote = resolveRemote({ url: str('url'), token: str('token'), dataDir: config.dataDir, port: config.server.port });
+        const res = await fetch(`${remote.url}/api/v1/system/backup`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${remote.token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(str('password') ? { password: str('password') } : {}),
+        }).catch(() => {
+          throw new ApiError(0, 'UNREACHABLE', `Cannot reach Livynq at ${remote.url}`);
+        });
+        if (!res.ok) {
+          const e = ((await res.json().catch(() => ({}))) as { error?: { code: string; message: string } }).error;
+          throw new ApiError(res.status, e?.code ?? 'HTTP_ERROR', e?.message ?? res.statusText);
+        }
+        const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'livynq-backup.tar.gz';
+        const out = str('out') ?? name;
+        const data = Buffer.from(await res.arrayBuffer());
+        writeFileSync(out, data, { mode: 0o600 });
+        return print(`backup written: ${out} (${(data.length / 1024).toFixed(0)} KB)`, { file: out, bytes: data.length });
+      }
+      if ((sub === 'restore' || sub === 'inspect') && rest[0]) {
+        const data = readFileSync(rest[0]);
+        if (sub === 'inspect') {
+          const manifest = readBackupManifest(data, str('password'));
+          return print(JSON.stringify(manifest, null, 2), manifest);
+        }
+        const config = loadConfig(overrides());
+        const running = await fetch(`http://127.0.0.1:${config.server.port}/api/v1/health`).then(() => true, () => false);
+        if (running) throw new ApiError(409, 'CONFLICT', 'Livynq is running', 'Stop it first (e.g. systemctl stop livynq), then restore');
+        const result = restoreBackup(data, config.dataDir, { password: str('password') });
+        return print(
+          `restored backup from ${new Date(result.manifest.createdAt).toLocaleString()} (Livynq ${result.manifest.livynqVersion}) into ${config.dataDir}` +
+            (result.previous ? `\nprevious data kept at ${result.previous}` : ''),
+          result,
+        );
+      }
+      throw new ApiError(400, 'INVALID_PARAMS', 'Usage: livynq backup create|restore <file>|inspect <file>');
+    }
+    case 'imports': {
+      const c = client();
+      if (sub === 'revert' && rest[0]) {
+        const r = await c.request<{ reverted: number; skipped: string[] }>('POST', `/api/v1/imports/${encodeURIComponent(rest[0])}/revert`, {});
+        return print(`reverted ${r.reverted} changes${r.skipped.length ? `; skipped:\n  ${r.skipped.join('\n  ')}` : ''}`, r);
+      }
+      const list = await c.request<{ id: string; source: string; createdAt: number; revertedAt: number | null; summary: Record<string, number> }[]>('GET', '/api/v1/imports');
+      return print(
+        table(list.map((i) => ({ id: i.id, when: new Date(i.createdAt).toLocaleString(), source: i.source, devices: i.summary.devicesMatched, automations: i.summary.automations, reverted: i.revertedAt ? 'yes' : '' }))),
+        list,
+      );
     }
     case 'rooms': {
       const rooms = await client().rooms();

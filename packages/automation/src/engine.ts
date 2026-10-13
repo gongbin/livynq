@@ -172,17 +172,24 @@ export class AutomationEngine implements Exporter {
    * Creates or replaces an automation. Invalid configs are rejected (nothing is stored).
    * `onlyCreate` refuses to overwrite an existing id.
    */
-  save(config: Record<string, unknown>, source: string, options: { enabled?: boolean; onlyCreate?: boolean; id?: string } = {}): AutomationInfo {
+  save(
+    config: Record<string, unknown>,
+    source: string,
+    options: { enabled?: boolean; onlyCreate?: boolean; id?: string; /** Store invalid configs (disabled) instead of rejecting: used by importers. */ allowInvalid?: boolean } = {},
+  ): AutomationInfo {
     const raw = { ...config, ...(options.id ? { id: options.id } : {}) };
     const { ok, errors, automation } = this.validate(raw);
-    if (!ok || !automation) throw new LivynqError('INVALID_PARAMS', `Invalid automation: ${errors.join('; ')}`, errors.join('\n'));
-    const previous = this.#entries.get(automation.id);
-    if (previous && options.onlyCreate) throw new LivynqError('CONFLICT', `Automation ${automation.id} already exists`);
+    const id = automation?.id ?? (typeof raw.id === 'string' || typeof raw.id === 'number' ? String(raw.id) : undefined);
+    if ((!ok || !automation) && !(options.allowInvalid && id && /^[A-Za-z0-9_-]{1,64}$/.test(id))) {
+      throw new LivynqError('INVALID_PARAMS', `Invalid automation: ${errors.join('; ')}`, errors.join('\n'));
+    }
+    const previous = this.#entries.get(id!);
+    if (previous && options.onlyCreate) throw new LivynqError('CONFLICT', `Automation ${id} already exists`);
     const now = Date.now();
-    const stored = { ...raw, id: automation.id };
+    const stored = { ...raw, id: id! };
     const info = {
-      id: automation.id,
-      enabled: options.enabled ?? previous?.info.enabled ?? true,
+      id: id!,
+      enabled: ok ? (options.enabled ?? previous?.info.enabled ?? true) : false,
       version: (previous?.info.version ?? 0) + 1,
       createdBy: previous?.info.createdBy ?? source,
       createdAt: previous?.info.createdAt ?? now,

@@ -10,3 +10,5 @@ export * from './demo-adapter.ts';
 export * from './dto.ts';
 export * from './entity-state.ts';
 export * from './services.ts';
+export * from './tar.ts';
+export * from './backup.ts';

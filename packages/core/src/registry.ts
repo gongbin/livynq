@@ -31,6 +31,8 @@ export interface DevicePatch {
   roomId?: string | null;
   aliases?: string[];
   exposure?: Partial<ExposurePolicy>;
+  /** Restores the "renamed by user" flag (used when undoing imports). */
+  nameByUser?: boolean;
 }
 
 export interface HistoryPoint {
@@ -102,6 +104,12 @@ export class Registry {
     return device;
   }
 
+  /** Looks up an endpoint id without allocating one (planning/dry-run code paths). */
+  findEndpointId(deviceId: DeviceId, key: string): number | undefined {
+    const row = this.#storage.sql('SELECT endpoint_id FROM endpoint_ids WHERE device_id = ? AND key = ?').get(deviceId, key) as { endpoint_id: number } | undefined;
+    return row?.endpoint_id;
+  }
+
   /** Stable numeric endpoint id for an adapter-specific key (e.g. an MQTT unique_id). */
   endpointId(deviceId: DeviceId, key: string): number {
     const existing = this.#storage.sql('SELECT endpoint_id FROM endpoint_ids WHERE device_id = ? AND key = ?').get(deviceId, key) as
@@ -155,6 +163,7 @@ export class Registry {
       if (patch.roomId !== null && !this.#rooms.has(patch.roomId)) throw new LivynqError('NOT_FOUND', `Room not found: ${patch.roomId}`);
       device.roomId = patch.roomId;
     }
+    if (patch.nameByUser !== undefined) device.nameByUser = patch.nameByUser;
     if (patch.aliases !== undefined) device.aliases = patch.aliases.map((a) => a.trim()).filter(Boolean);
     if (patch.exposure !== undefined) device.exposure = { ...device.exposure, ...patch.exposure };
     device.updatedAt = Date.now();

@@ -18,6 +18,7 @@
     "@livynq/automation": "workspace:*",
     "@livynq/core": "workspace:*",
     "@livynq/exporter-homekit": "workspace:*",
+    "@livynq/importer-homeassistant": "workspace:*",
     "@livynq/model": "workspace:*",
     "fastify": "^5.12.5",
     "pino": "^10.4.0",
