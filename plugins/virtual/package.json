@@ -1,11 +1,33 @@
 {
   "name": "@livynq/plugin-virtual",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Virtual switches and momentary buttons (e.g. Siri-triggerable scenes) for Livynq",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "plugins/virtual"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
   },
   "dependencies": {
     "@livynq/sdk": "workspace:*"

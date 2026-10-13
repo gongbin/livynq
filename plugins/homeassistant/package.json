@@ -1,11 +1,33 @@
 {
   "name": "@livynq/plugin-homeassistant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live bridge to a running Home Assistant (WebSocket API) for Livynq",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "plugins/homeassistant"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
   },
   "dependencies": {
     "@livynq/sdk": "workspace:*"

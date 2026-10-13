@@ -14,7 +14,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test --test-force-exit --test-timeout=60000 --test-concurrency=1 \"packages/*/test/**/*.test.ts\" \"plugins/*/test/**/*.test.ts\" \"apps/server/test/**/*.test.ts\" \"apps/web/test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @livynq/web typecheck",
     "livynq": "node --disable-warning=ExperimentalWarning apps/server/src/main.ts",
-    "build:sea": "node --disable-warning=ExperimentalWarning scripts/build-sea.ts"
+    "build:sea": "node --disable-warning=ExperimentalWarning scripts/build-sea.ts",
+    "build:packages": "node --disable-warning=ExperimentalWarning scripts/build-packages.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
