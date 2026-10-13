@@ -1,5 +1,5 @@
 import type { EventEmitter } from 'node:events';
-import { DeviceTypes, type PluginContext, type PluginDevice } from '@livynq/sdk';
+import { DeviceTypes, getCapability, type PluginContext, type PluginDevice } from '@livynq/sdk';
 import { commandToZigbee, payloadToUpdates, planEndpoints, type EndpointPlan, type Expose } from './exposes.ts';
 
 /** The parts of zigbee-herdsman and zigbee-herdsman-converters this bridge uses (injectable for tests). */
@@ -164,9 +164,9 @@ export class ZigbeeBridge {
     const bound: Bound = { zh, definition, plans, device, state: this.#bound.get(zh.ieeeAddr)?.state ?? {} };
     this.#bound.set(zh.ieeeAddr, bound);
     for (const { plan, endpointId } of plans) {
-      const controllable = plan.capabilities.filter((c) => c === 'onOff' || c === 'levelControl' || c === 'colorControl');
-      for (const capability of controllable) {
-        const commands = capability === 'onOff' ? ['on', 'off', 'toggle'] : capability === 'levelControl' ? ['moveToLevel'] : ['moveToColorTemperature', 'moveToHueAndSaturation'];
+      for (const capability of plan.capabilities) {
+        const commands = Object.keys(getCapability(capability)?.commands ?? {});
+        if (!commands.length) continue;
         device.handle(
           endpointId,
           capability,

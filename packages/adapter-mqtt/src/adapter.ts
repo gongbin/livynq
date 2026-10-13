@@ -23,6 +23,7 @@ import {
   type EndpointPlan,
 } from './discovery.ts';
 import { compileTemplate, payloadEquals, UnsupportedTemplateError } from './template.ts';
+import { wireExtended } from './components.ts';
 
 export interface MqttAdapterOptions {
   url: string;
@@ -137,7 +138,9 @@ export class MqttAdapter implements Adapter {
     const previousDevice = this.#entityDevice.get(topic);
     if (previousDevice && previousDevice !== deviceId) this.#removeEntity(topic);
 
-    const endpointId = this.#ctx.endpointId(deviceId, config.unique_id ?? topic);
+    // All button triggers of a device share one "button" endpoint.
+    const endpointKey = component === 'device_automation' ? 'device_automation' : (config.unique_id ?? topic);
+    const endpointId = this.#ctx.endpointId(deviceId, endpointKey);
     let device = this.#devices.get(deviceId);
     if (!device) this.#devices.set(deviceId, (device = { id: deviceId, entities: new Map(), listeners: [] }));
     device.entities.set(topic, { discoveryTopic: topic, component, config, plan, endpointId });
@@ -169,20 +172,22 @@ export class MqttAdapter implements Adapter {
   #publish(device: DeviceRecord): void {
     const entities = [...device.entities.values()].sort((a, b) => a.endpointId - b.endpointId);
     const meta = entities.find((e) => e.config.device)?.config.device ?? {};
-    const single = entities.length === 1;
+    const single = new Set(entities.map((e) => e.endpointId)).size === 1;
     const def: DeviceDefinition = {
       id: device.id,
       name: meta.name ?? entityName(entities[0]!) ?? device.id.slice(5),
       protocol: 'mqtt',
       info: { manufacturer: meta.manufacturer, model: meta.model, firmware: meta.sw_version },
       suggestedRoom: meta.suggested_area,
-      endpoints: entities.map((e) => ({
-        id: e.endpointId,
-        deviceType: e.plan.deviceType,
-        ...(single ? {} : { name: entityName(e) ?? e.config.device_class ?? e.component }),
-        capabilities: e.plan.capabilities,
-        ...(e.config.state_topic || e.config.optimistic === false ? {} : { assumedState: true }),
-      })),
+      endpoints: entities
+        .filter((e, i) => entities.findIndex((x) => x.endpointId === e.endpointId) === i)
+        .map((e) => ({
+          id: e.endpointId,
+          deviceType: e.plan.deviceType,
+          ...(single ? {} : { name: e.component === 'device_automation' ? 'Button' : (entityName(e) ?? e.config.device_class ?? e.component) }),
+          capabilities: e.plan.capabilities,
+          ...(e.config.state_topic || e.config.optimistic === false || ['device_automation', 'event'].includes(e.component) ? {} : { assumedState: true }),
+        })),
     };
     let handle: DeviceHandle;
     try {
@@ -263,6 +268,22 @@ export class MqttAdapter implements Adapter {
     const handlers = (capability: string, map: Record<string, CommandHandler>) => handle.handle(ep, capability, map);
 
     switch (entity.component) {
+      case 'cover':
+      case 'climate':
+      case 'fan':
+      case 'lock':
+      case 'device_automation':
+      case 'event':
+        return wireExtended(entity.component, {
+          config,
+          plan: entity.plan,
+          listen: (topic, fn) => this.#listen(device, topic, fn),
+          publish,
+          update: (capability, attributes) => handle.update(ep, capability, attributes),
+          get: (capability, attribute) => handle.get(ep, capability, attribute),
+          handle: (capability, map) => handle.handle(ep, capability, map),
+          warn: (message) => this.#warnOnce(entity.discoveryTopic, message),
+        });
       case 'light':
         return config.schema === 'json' ? this.#wireJsonLight(device, handle, entity, publish) : this.#wireDefaultLight(device, handle, entity, publish);
       case 'switch': {

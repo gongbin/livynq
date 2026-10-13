@@ -40,6 +40,15 @@ export interface EndpointPlan {
     valueOn?: unknown;
     valueOff?: unknown;
     colorTempRange?: [number, number];
+    position?: string;
+    tilt?: string;
+    localTemperature?: string;
+    setpoint?: string;
+    systemMode?: string;
+    modes?: string[];
+    runningState?: string;
+    fanMode?: string;
+    action?: string;
   };
 }
 
@@ -111,6 +120,49 @@ export function planEndpoints(exposes: Expose[], description = ''): EndpointPlan
         endpointName: e.endpoint,
         props: { state: state.property, valueOn: state.value_on ?? 'ON', valueOff: state.value_off ?? 'OFF' },
       });
+    } else if (e.type === 'cover') {
+      const state = feature(e, 'state');
+      plans.push({
+        key: `cover${suffix}`,
+        name: e.endpoint ? `Cover ${e.endpoint}` : undefined,
+        deviceType: /garage|gate/i.test(description) ? DeviceTypes.GarageDoor.id : DeviceTypes.WindowCovering.id,
+        capabilities: ['windowCovering'],
+        endpointName: e.endpoint,
+        props: { state: state?.property, position: feature(e, 'position')?.property, tilt: feature(e, 'tilt')?.property },
+      });
+    } else if (e.type === 'climate') {
+      const setpoint = feature(e, 'occupied_heating_setpoint') ?? feature(e, 'current_heating_setpoint') ?? feature(e, 'occupied_cooling_setpoint');
+      const mode = feature(e, 'system_mode') as (Expose & { values?: string[] }) | undefined;
+      const modes = (mode?.values ?? ['off', 'heat']).filter((m) => ['off', 'heat', 'cool', 'auto', 'dry', 'fan_only'].includes(m));
+      plans.push({
+        key: `climate${suffix}`,
+        name: e.endpoint ? `Thermostat ${e.endpoint}` : undefined,
+        deviceType: modes.includes('cool') ? DeviceTypes.AirConditioner.id : DeviceTypes.Thermostat.id,
+        capabilities: ['thermostat'],
+        endpointName: e.endpoint,
+        props: { localTemperature: feature(e, 'local_temperature')?.property, setpoint: setpoint?.property, systemMode: mode?.property, modes, runningState: feature(e, 'running_state')?.property },
+      });
+    } else if (e.type === 'fan') {
+      const state = feature(e, 'state');
+      plans.push({
+        key: `fan${suffix}`,
+        deviceType: DeviceTypes.Fan.id,
+        capabilities: ['onOff', 'fanControl'],
+        endpointName: e.endpoint,
+        props: { state: state?.property, valueOn: state?.value_on ?? 'ON', valueOff: state?.value_off ?? 'OFF', fanMode: feature(e, 'mode')?.property },
+      });
+    } else if (e.type === 'lock') {
+      const state = feature(e, 'state');
+      if (!state?.property) continue;
+      plans.push({
+        key: `lock${suffix}`,
+        deviceType: DeviceTypes.DoorLock.id,
+        capabilities: ['doorLock'],
+        endpointName: e.endpoint,
+        props: { state: state.property, valueOn: state.value_on ?? 'LOCK', valueOff: state.value_off ?? 'UNLOCK' },
+      });
+    } else if (e.type === 'enum' && e.name === 'action' && e.property) {
+      plans.push({ key: 'action', name: 'Button', deviceType: DeviceTypes.GenericSwitch.id, capabilities: ['genericSwitch'], props: { action: e.property } });
     } else if (e.type === 'numeric' && e.name && NUMERIC[e.name] && e.property) {
       const m = NUMERIC[e.name]!;
       if (plans.some((p) => p.capabilities[0] === m.capability && p.endpointName === e.endpoint)) continue; // illuminance + illuminance_lux
@@ -132,6 +184,48 @@ export function payloadToUpdates(plan: EndpointPlan, payload: Record<string, unk
   const out: Update[] = [];
   const p = plan.props;
   const has = (prop: string | undefined): prop is string => prop !== undefined && payload[prop] !== undefined && payload[prop] !== null;
+  switch (plan.capabilities[0]) {
+    case 'windowCovering': {
+      const attrs: Record<string, AttributeValue> = {};
+      if (has(p.position)) attrs.currentPosition = Math.round(Number(payload[p.position]));
+      if (has(p.tilt)) attrs.currentTilt = Math.round(Number(payload[p.tilt]));
+      const moving = payload.moving;
+      if (moving === 'UP') attrs.operationalStatus = 'opening';
+      else if (moving === 'DOWN') attrs.operationalStatus = 'closing';
+      else if (moving === 'STOP' || has(p.position)) attrs.operationalStatus = 'stopped';
+      if (!p.position && has(p.state)) attrs.currentPosition = payload[p.state] === 'OPEN' ? 100 : 0;
+      return Object.keys(attrs).length ? [{ capability: 'windowCovering', attributes: attrs }] : [];
+    }
+    case 'thermostat': {
+      const attrs: Record<string, AttributeValue> = { supportedModes: (p.modes ?? []).join(',') };
+      if (has(p.localTemperature)) attrs.localTemperature = Number(payload[p.localTemperature]);
+      if (has(p.setpoint)) attrs.targetTemperature = Number(payload[p.setpoint]);
+      if (has(p.systemMode)) attrs.systemMode = String(payload[p.systemMode]);
+      if (has(p.runningState)) {
+        const r = String(payload[p.runningState]);
+        attrs.runningState = r === 'heat' ? 'heating' : r === 'cool' ? 'cooling' : r === 'fan_only' ? 'fan' : 'idle';
+      }
+      return [{ capability: 'thermostat', attributes: attrs }];
+    }
+    case 'doorLock':
+      return has(p.state) ? [{ capability: 'doorLock', attributes: { lockState: payload[p.state] === p.valueOn ? 'locked' : payload[p.state] === p.valueOff ? 'unlocked' : 'unknown' } }] : [];
+    case 'genericSwitch': {
+      if (!has(p.action) || payload[p.action] === '') return [];
+      const action = String(payload[p.action]);
+      const lastEvent = /release|_up$|stop/.test(action) ? 'release' : /double/.test(action) ? 'double' : /long|hold/.test(action) ? 'long' : 'single';
+      return [{ capability: 'genericSwitch', attributes: { lastEvent, lastEventAt: Date.now(), lastAction: action } }];
+    }
+  }
+  if (plan.deviceType === DeviceTypes.Fan.id) {
+    const out2: Update[] = [];
+    if (has(p.state)) out2.push({ capability: 'onOff', attributes: { onOff: payload[p.state] === p.valueOn } });
+    if (has(p.fanMode)) {
+      const mode = String(payload[p.fanMode]);
+      const percent = ({ off: 0, low: 33, medium: 66, high: 100, on: 100 } as Record<string, number>)[mode];
+      out2.push({ capability: 'fanControl', attributes: { ...(['off', 'low', 'medium', 'high', 'on', 'auto'].includes(mode) ? { fanMode: mode } : {}), ...(percent !== undefined ? { percentCurrent: percent } : {}) } });
+    }
+    return out2;
+  }
   if (plan.capabilities[0] === 'onOff' && has(p.state)) {
     const v = payload[p.state];
     if (v === p.valueOn || v === p.valueOff) out.push({ capability: 'onOff', attributes: { onOff: v === p.valueOn } });
@@ -188,6 +282,32 @@ export function commandToZigbee(plan: EndpointPlan, capability: string, command:
   const transition = params.transitionTime === undefined ? undefined : Number(params.transitionTime) / 10;
   const p = plan.props;
   switch (`${capability}.${command}`) {
+    case 'windowCovering.open':
+      return { key: 'state', value: 'OPEN' };
+    case 'windowCovering.close':
+      return { key: 'state', value: 'CLOSE' };
+    case 'windowCovering.stop':
+      return { key: 'state', value: 'STOP' };
+    case 'windowCovering.goToPosition':
+      return { key: 'position', value: Number(params.position) };
+    case 'windowCovering.goToTilt':
+      return { key: 'tilt', value: Number(params.tilt) };
+    case 'thermostat.setTargetTemperature':
+      if (!p.setpoint) throw new Error('This thermostat has no setpoint');
+      return { key: p.setpoint, value: Number(params.temperature) };
+    case 'thermostat.setSystemMode':
+      if (!p.modes?.includes(String(params.mode))) throw new Error(`Mode ${params.mode} not supported (supported: ${(p.modes ?? []).join(', ')})`);
+      return { key: p.systemMode ?? 'system_mode', value: String(params.mode) };
+    case 'doorLock.lock':
+      return { key: 'state', value: p.valueOn ?? 'LOCK' };
+    case 'doorLock.unlock':
+      return { key: 'state', value: p.valueOff ?? 'UNLOCK' };
+    case 'fanControl.setPercent': {
+      const pct = Number(params.percent);
+      return { key: p.fanMode ?? 'fan_mode', value: pct <= 0 ? 'off' : pct <= 33 ? 'low' : pct <= 66 ? 'medium' : 'high' };
+    }
+    case 'fanControl.setMode':
+      return { key: p.fanMode ?? 'fan_mode', value: String(params.mode) };
     case 'onOff.on':
       return { key: 'state', value: p.valueOn ?? 'ON' };
     case 'onOff.off':

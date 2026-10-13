@@ -61,7 +61,7 @@ function splitPipes(expr: string): string[] {
 }
 
 function parsePath(expr: string): string[] {
-  if (!/^(value|value_json)((\.[A-Za-z_][\w-]*)|(\[\s*('[^']*'|"[^"]*"|\d+)\s*\]))*$/.test(expr)) {
+  if (!/^[A-Za-z_]\w*((\.[A-Za-z_][\w-]*)|(\[\s*('[^']*'|"[^"]*"|\d+)\s*\]))*$/.test(expr)) {
     throw new UnsupportedTemplateError(`Unsupported template expression: ${expr}`);
   }
   const keys: string[] = [];
@@ -116,4 +116,32 @@ export function payloadEquals(rendered: TemplateValue, expected: unknown): boole
   if (rendered === undefined || expected === undefined) return false;
   const norm = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)).toLowerCase();
   return norm(rendered) === norm(expected);
+}
+
+/**
+ * Command templates mix text and expressions, e.g. `{"position": {{ position }}}` or
+ * `{{ value }}`. Variables are provided by the caller (value, position, tilt_position…).
+ */
+export function compileStringTemplate(source: string): { render(variables: Record<string, unknown>): string } {
+  if (source.includes('{%')) throw new UnsupportedTemplateError(`Unsupported template: ${source}`);
+  const parts: (string | CompiledTemplate)[] = [];
+  let last = 0;
+  for (const m of source.matchAll(/\{\{.+?\}\}/gs)) {
+    parts.push(source.slice(last, m.index));
+    parts.push(compileTemplate(m[0]));
+    last = m.index! + m[0].length;
+  }
+  parts.push(source.slice(last));
+  return {
+    render(variables) {
+      const value = String(variables.value ?? '');
+      return parts
+        .map((p) => {
+          if (typeof p === 'string') return p;
+          const v = p.render(value, variables);
+          return v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+        })
+        .join('');
+    },
+  };
 }

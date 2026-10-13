@@ -39,6 +39,64 @@ const ABBREVIATIONS: Record<string, string> = {
   unit_of_meas: 'unit_of_measurement',
   val_tpl: 'value_template',
   json_attr_t: 'json_attributes_topic',
+  // cover
+  pos_t: 'position_topic',
+  pos_tpl: 'position_template',
+  set_pos_t: 'set_position_topic',
+  set_pos_tpl: 'set_position_template',
+  pos_open: 'position_open',
+  pos_clsd: 'position_closed',
+  pl_open: 'payload_open',
+  pl_cls: 'payload_close',
+  pl_stop: 'payload_stop',
+  stat_open: 'state_open',
+  stat_clsd: 'state_closed',
+  stat_opening: 'state_opening',
+  stat_closing: 'state_closing',
+  stat_stopped: 'state_stopped',
+  tilt_cmd_t: 'tilt_command_topic',
+  tilt_status_t: 'tilt_status_topic',
+  tilt_status_tpl: 'tilt_status_template',
+  tilt_cmd_tpl: 'tilt_command_template',
+  // climate
+  mode_cmd_t: 'mode_command_topic',
+  mode_cmd_tpl: 'mode_command_template',
+  mode_stat_t: 'mode_state_topic',
+  mode_stat_tpl: 'mode_state_template',
+  temp_cmd_t: 'temperature_command_topic',
+  temp_cmd_tpl: 'temperature_command_template',
+  temp_stat_t: 'temperature_state_topic',
+  temp_stat_tpl: 'temperature_state_template',
+  temp_lo_cmd_t: 'temperature_low_command_topic',
+  temp_hi_cmd_t: 'temperature_high_command_topic',
+  curr_temp_t: 'current_temperature_topic',
+  curr_temp_tpl: 'current_temperature_template',
+  act_t: 'action_topic',
+  act_tpl: 'action_template',
+  // fan
+  pct_cmd_t: 'percentage_command_topic',
+  pct_cmd_tpl: 'percentage_command_template',
+  pct_stat_t: 'percentage_state_topic',
+  pct_val_tpl: 'percentage_value_template',
+  pr_mode_cmd_t: 'preset_mode_command_topic',
+  pr_mode_cmd_tpl: 'preset_mode_command_template',
+  pr_mode_stat_t: 'preset_mode_state_topic',
+  pr_mode_val_tpl: 'preset_mode_value_template',
+  pr_modes: 'preset_modes',
+  spd_rng_min: 'speed_range_min',
+  spd_rng_max: 'speed_range_max',
+  // lock
+  pl_lock: 'payload_lock',
+  pl_unlk: 'payload_unlock',
+  stat_locked: 'state_locked',
+  stat_unlocked: 'state_unlocked',
+  stat_jam: 'state_jammed',
+  // device triggers / events
+  atype: 'automation_type',
+  t: 'topic',
+  pl: 'payload',
+  stype: 'subtype',
+  evt_typ: 'event_types',
 };
 
 const DEVICE_ABBREVIATIONS: Record<string, string> = {
@@ -51,8 +109,8 @@ const DEVICE_ABBREVIATIONS: Record<string, string> = {
   sa: 'suggested_area',
 };
 
-export type Component = 'light' | 'switch' | 'sensor' | 'binary_sensor';
-export const SUPPORTED_COMPONENTS: readonly Component[] = ['light', 'switch', 'sensor', 'binary_sensor'];
+export type Component = 'light' | 'switch' | 'sensor' | 'binary_sensor' | 'cover' | 'climate' | 'fan' | 'lock' | 'device_automation' | 'event';
+export const SUPPORTED_COMPONENTS: readonly Component[] = ['light', 'switch', 'sensor', 'binary_sensor', 'cover', 'climate', 'fan', 'lock', 'device_automation', 'event'];
 
 export interface DiscoveryConfig {
   [key: string]: unknown;
@@ -149,6 +207,23 @@ export function planEndpoint(component: Component, config: DiscoveryConfig): End
         default:
           return undefined;
       }
+    case 'cover':
+      return {
+        deviceType: deviceClass === 'garage' ? DeviceTypes.GarageDoor.id : deviceClass === 'gate' ? DeviceTypes.Gate.id : DeviceTypes.WindowCovering.id,
+        capabilities: ['windowCovering'],
+      };
+    case 'climate': {
+      const modes = Array.isArray(config.modes) ? (config.modes as string[]) : ['off', 'heat'];
+      return { deviceType: modes.includes('cool') ? DeviceTypes.AirConditioner.id : DeviceTypes.Thermostat.id, capabilities: ['thermostat'] };
+    }
+    case 'fan':
+      return { deviceType: DeviceTypes.Fan.id, capabilities: ['onOff', 'fanControl'] };
+    case 'lock':
+      return { deviceType: DeviceTypes.DoorLock.id, capabilities: ['doorLock'] };
+    case 'device_automation':
+      return config.automation_type === 'trigger' && config.topic ? { deviceType: DeviceTypes.GenericSwitch.id, capabilities: ['genericSwitch'] } : undefined;
+    case 'event':
+      return { deviceType: DeviceTypes.GenericSwitch.id, capabilities: ['genericSwitch'] };
     case 'binary_sensor':
       switch (deviceClass) {
         case 'motion':
