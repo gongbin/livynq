@@ -1,4 +1,4 @@
-import { fork, type ChildProcess } from 'node:child_process';
+import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
@@ -30,7 +30,21 @@ export interface ProcessPluginOptions {
   backoffMs?: number[];
 }
 
-const CHILD_ENTRY = fileURLToPath(new URL('./child.ts', import.meta.url));
+/** In a single executable the binary relaunches itself as the plugin host; otherwise fork the TS entry. */
+function spawnHost(id: string): ChildProcess {
+  const env = { ...process.env, LIVYNQ_PLUGIN_ID: id };
+  const stdio: ['ignore', 'pipe', 'pipe', 'ipc'] = ['ignore', 'pipe', 'pipe', 'ipc'];
+  if (isSea()) return spawn(process.execPath, [], { stdio, env: { ...env, LIVYNQ_ROLE: 'plugin-host' } });
+  return fork(fileURLToPath(new URL('./child-entry.ts', import.meta.url)), [], { execArgv: ['--disable-warning=ExperimentalWarning'], stdio, env });
+}
+
+function isSea(): boolean {
+  try {
+    return (process as unknown as { getBuiltinModule(m: string): { isSea(): boolean } }).getBuiltinModule('node:sea').isSea();
+  } catch {
+    return false;
+  }
+}
 const INVOKE_TIMEOUT_MS = 10_000;
 
 /**
@@ -126,11 +140,7 @@ export class ProcessPluginAdapter implements Adapter {
   #spawn(): Promise<void> {
     this.#status = 'starting';
     this.#lastFailure = undefined;
-    const child = fork(CHILD_ENTRY, [], {
-      execArgv: ['--disable-warning=ExperimentalWarning'],
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, LIVYNQ_PLUGIN_ID: this.id },
-    });
+    const child = spawnHost(this.id);
     this.#child = child;
     const log = this.#ctx.log;
     for (const [stream, level] of [[child.stdout!, 'info'], [child.stderr!, 'warn']] as const) {

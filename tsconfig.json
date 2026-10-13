@@ -6,6 +6,7 @@
     "plugins/*/src",
     "plugins/*/test",
     "apps/server/src",
-    "apps/server/test"
+    "apps/server/test",
+    "scripts"
   ]
 }

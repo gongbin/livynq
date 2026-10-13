@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -29,7 +30,32 @@ export interface ServerOptions {
   webRoot?: string;
 }
 
-const defaultWebRoot = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+/**
+ * Web UI location: next to the sources in development; in the single executable the UI is an
+ * embedded asset set, extracted once per version into the data directory.
+ */
+function resolveWebRoot(dataDir: string): string {
+  const sea = isSea();
+  if (!sea) return join(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+  const target = join(dataDir === ':memory:' ? tmpdir() : dataDir, 'cache', `web-${VERSION}`);
+  if (!existsSync(join(target, 'index.html'))) {
+    const manifest = JSON.parse(sea.getAsset('web-manifest.json', 'utf8') as string) as string[];
+    for (const file of manifest) {
+      mkdirSync(dirname(join(target, file)), { recursive: true });
+      writeFileSync(join(target, file), Buffer.from(sea.getAsset(`web/${file}`) as ArrayBuffer));
+    }
+  }
+  return target;
+}
+
+function isSea(): { getAsset(key: string, encoding?: string): string | ArrayBuffer } | undefined {
+  try {
+    const sea = process.getBuiltinModule('node:sea') as { isSea(): boolean; getAsset(key: string, encoding?: string): string | ArrayBuffer };
+    return sea.isSea() ? sea : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function createServer(home: Home, options: ServerOptions): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: options.logger.child({ module: 'http' }) as FastifyBaseLogger, logController: new LogController({ disableRequestLogging: true }), bodyLimit: 1_048_576 });
@@ -234,7 +260,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   });
 
   // ------------------------------------------------------------------ web UI
-  const webRoot = options.webRoot ?? defaultWebRoot;
+  const webRoot = options.webRoot ?? resolveWebRoot(home.dataDir);
   if (existsSync(join(webRoot, 'index.html'))) {
     // wildcard: serve files created after startup too (rebuilding the UI must not need a restart).
     await app.register(fastifyStatic, { root: webRoot, wildcard: true, index: false });

@@ -1107,7 +1107,7 @@ interface Placement {
 
 | 方式 | 命令/形式 | 说明 |
 | --- | --- | --- |
-| **单文件可执行程序** | 下载 `livynq-linux-arm64`，`./livynq` | 基于 Node SEA：Node 运行时 + 核心 bundle + Web 静态资源打包为一个文件（约 60–80MB），**零依赖**；首次运行在 `~/.livynq` 初始化 |
+| **单文件可执行程序** | 下载 `livynq-linux-arm64`，`./livynq` | 基于 Node SEA：Node 运行时 + 核心 bundle（约 5MB）+ Web 静态资源打包为一个文件（实测约 117MB，其中 Node 运行时约 110MB；下载压缩后约 40MB），**零依赖**；首次运行在 `~/.livynq` 初始化 |
 | **一键安装脚本**（Linux） | `curl -fsSL https://get.livynq.dev \| sh` | 下载单文件程序到 `/opt/livynq`，创建 `livynq` 用户与 systemd 服务，配置串口/蓝牙权限 |
 | **Docker** | `docker run -d --network host -v livynq:/data ghcr.io/livynq/livynq` | 必须 host 网络（mDNS）；提供 `compose.yaml` |
 | **Home Assistant Add-on** | 在 HA 加载项商店添加仓库 | **面向 HA 用户的零门槛试用**：与 HA 并存，自动配置 `ha-bridge`；HAOS 上即可运行 |
@@ -1232,7 +1232,7 @@ livynq service install       # 生成并启用 systemd/launchd 服务
 | 命令延迟 | Apple Home / MCP → 局域网设备 P95 < 300ms |
 | 状态推送 | 设备上报 → Apple Home / Web P95 < 200ms |
 | 规模 | 单实例 1000 设备、每秒 500 状态事件 |
-| 安装体积 | 单文件程序 < 80MB（含 Node 运行时与 Web 资源） |
+| 安装体积 | 单文件程序约 120MB（其中 Node 运行时约 110MB，Livynq 本身约 5MB）；gzip 下载约 40MB |
 | 前端 | 首屏 < 300KB gzip；3D 分包 < 1.5MB gzip；中端手机 3D 视图 ≥ 30fps |
 | 导入 | 导入 500 实体 / 200 自动化的 HA 配置 < 30s（树莓派 4） |
 
@@ -1306,7 +1306,7 @@ livynq/
 | **M3 1.0** | 第 8–10 月 | Homebridge 兼容层与导入、摄像头 + HKSV、插件市场、可视化流程编辑器、QuickJS 脚本、多用户、**3D 户型（Pascal 集成：绘制/快速模式/底图描摹/设备摆放/实时状态）**、**LLM Provider + 自然语言建自动化**、**HA API 兼容子集（实验）**、文档站与 llms.txt、API 稳定承诺 |
 | **1.x** | 之后 | BLE/BTHome、Matter BLE 配网与 OTA、HAP Controller、米家/Tuya、KNX/Modbus/红外、zwave-js-ui 导入、LiDAR/glTF/IFC 户型导入、Agent 生成户型、能耗面板、信号覆盖图层、树莓派镜像 |
 
-> M0 实现情况与偏差说明见 [m0.md](m0.md)。
+> 实现情况与偏差说明见 [m0.md](m0.md)、[m1.md](m1.md)。
 
 **MVP 验收标准（M1）**：树莓派 4 上下载单文件程序一条命令启动 → 导入现有 Z2M 配置，Zigbee 设备**免重新配对**上线 → 10 分钟内出现在 Apple Home 并可 Siri 控制 → Claude 等 MCP 客户端可只读查询所有设备状态 → 断网后 Web 与 Home App 正常 → 重启/升级/备份恢复后 Apple Home 房间与自动化不丢失。
 

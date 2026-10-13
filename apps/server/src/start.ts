@@ -7,6 +7,7 @@ import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
 import { AutomationEngine } from '@livynq/automation';
 import { createPluginAdapter, resolvePlugin } from '@livynq/plugin-host';
+import type { PluginDefinition } from '@livynq/sdk';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LivynqConfig } from './config.ts';
@@ -19,7 +20,12 @@ export interface RunningInstance {
   stop(): Promise<void>;
 }
 
-export async function startLivynq(config: LivynqConfig): Promise<RunningInstance> {
+export interface StartOptions {
+  /** Plugins compiled into a single-executable build. */
+  bundledPlugins?: Record<string, PluginDefinition>;
+}
+
+export async function startLivynq(config: LivynqConfig, options: StartOptions = {}): Promise<RunningInstance> {
   mkdirSync(config.dataDir, { recursive: true });
   const logger = pino({ level: config.logLevel, base: undefined });
   logger.info({ version: VERSION, dataDir: config.dataDir }, 'starting Livynq');
@@ -44,6 +50,7 @@ export async function startLivynq(config: LivynqConfig): Promise<RunningInstance
         dataDir: config.dataDir,
         configDir: dirname(config.configFile),
         resolveBuiltin: (specifier) => fileURLToPath(import.meta.resolve(specifier)),
+        bundled: options.bundledPlugins,
       });
       home.useAdapter(await createPluginAdapter(plugin));
       logger.info({ plugin: plugin.id, isolation: plugin.isolation }, 'plugin registered');

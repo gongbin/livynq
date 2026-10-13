@@ -6,6 +6,7 @@ import { loadConfig, updatePluginsInConfig, type ConfigOverrides } from './confi
 import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
 import { deviceRows, table } from './cli/format.ts';
 import { VERSION } from './version.ts';
+import { bundledPlugins } from './bundled.ts';
 import type { ImportPlan } from '@livynq/importer-homeassistant';
 import type { PluginEntry } from '@livynq/plugin-host';
 
@@ -125,7 +126,7 @@ async function run(): Promise<void> {
   switch (cmd) {
     case 'start': {
       const { startLivynq } = await import('./start.ts');
-      const instance = await startLivynq(loadConfig(overrides()));
+      const instance = await startLivynq(loadConfig(overrides()), { bundledPlugins });
       const shutdown = async () => {
         await instance.stop();
         process.exit(0);

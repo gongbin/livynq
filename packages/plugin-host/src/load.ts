@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LivynqError, type Adapter } from '@livynq/core';
-import { isPluginDefinition } from '@livynq/sdk';
+import { isPluginDefinition, type PluginDefinition } from '@livynq/sdk';
 import { InProcessPluginAdapter } from './in-process.ts';
 import { ProcessPluginAdapter } from './process-adapter.ts';
 
@@ -23,6 +23,8 @@ export interface ResolvedPlugin {
   file: string;
   isolation: 'process' | 'in-process';
   config: Record<string, unknown>;
+  /** Plugins compiled into the hub (single executable): always run in-process. */
+  definition?: PluginDefinition;
 }
 
 function entryFromPackage(dir: string): string {
@@ -43,6 +45,8 @@ export interface ResolveOptions {
   configDir: string;
   /** Resolves plugins shipped with Livynq (module specifier → entry file); provided by the app that depends on them. */
   resolveBuiltin?: (specifier: string) => string;
+  /** Plugins compiled into the hub, by module name. */
+  bundled?: Record<string, PluginDefinition>;
 }
 
 export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): ResolvedPlugin {
@@ -55,8 +59,12 @@ export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): Reso
     defaultId = basename(p).replace(/\.(ts|js|mjs)$/, '');
   } else if (entry.module) {
     const installed = join(options.dataDir, 'plugins', 'node_modules', entry.module);
+    const bundled = options.bundled?.[entry.module];
     if (existsSync(join(installed, 'package.json'))) file = entryFromPackage(installed);
-    else {
+    else if (bundled) {
+      const id = entry.id ?? entry.module.replace(/^@[^/]+\//, '').replace(/^livynq-plugin-|^plugin-/, '');
+      return { id, file: `bundled:${entry.module}`, isolation: 'in-process', config: entry.config ?? {}, definition: bundled };
+    } else {
       try {
         // Plugins shipped with Livynq (e.g. @livynq/plugin-virtual)
         if (!options.resolveBuiltin) throw new Error('no builtin resolver');
@@ -76,6 +84,7 @@ export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): Reso
 }
 
 export async function createPluginAdapter(plugin: ResolvedPlugin): Promise<Adapter> {
+  if (plugin.definition) return new InProcessPluginAdapter(plugin.id, plugin.definition, plugin.config);
   if (plugin.isolation === 'process') return new ProcessPluginAdapter({ id: plugin.id, module: plugin.file, config: plugin.config });
   const mod = (await import(pathToFileURL(plugin.file).href)) as { default?: unknown };
   if (!isPluginDefinition(mod.default)) throw new LivynqError('INVALID_PARAMS', `${plugin.file} must default-export defineAdapter({...})`);

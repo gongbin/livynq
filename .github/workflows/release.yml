@@ -1,0 +1,60 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: livynq-linux-x64
+          - os: ubuntu-24.04-arm
+            asset: livynq-linux-arm64
+          - os: macos-14
+            asset: livynq-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build:sea
+      - name: Smoke test
+        run: |
+          ./dist/${{ matrix.asset }} --version
+          ./dist/${{ matrix.asset }} start --demo --no-homekit --data "$RUNNER_TEMP/livynq" --port 8599 &
+          sleep 8
+          curl -fsS http://127.0.0.1:8599/api/v1/health
+          kill %1
+      - name: Compress
+        run: gzip -9 -k dist/${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.gz
+
+  publish:
+    needs: binary
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: cd assets && sha256sum livynq-* > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
