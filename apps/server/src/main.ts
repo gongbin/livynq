@@ -1,0 +1,199 @@
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+import { parseArgs } from 'node:util';
+import { actionToCommand, actions, describeCommands, endpointForTarget, serveMcpStdio, summarizeDevice, type Action } from '@livynq/agent';
+import type { TokenScope } from '@livynq/model';
+import { loadConfig, type ConfigOverrides } from './config.ts';
+import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
+import { deviceRows, table } from './cli/format.ts';
+import { VERSION } from './version.ts';
+
+const HELP = `livynq ${VERSION} — lightweight, local-first smart home hub
+
+Usage: livynq <command> [options]
+
+Server
+  start                         Run the hub
+      --data <dir>              Data directory (default ~/.livynq, env LIVYNQ_DATA_DIR)
+      --port <n>  --host <h>    HTTP/API/MCP listen address (default 0.0.0.0:8581)
+      --demo                    Add simulated devices
+      --mqtt <url>              MQTT broker (Home Assistant discovery), e.g. mqtt://192.168.1.2
+      --builtin-broker          Run an embedded MQTT broker on :1883
+      --no-homekit              Do not start the HomeKit bridge
+  login-url                     Print a web UI login link (local machine only)
+
+Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for remote)
+  status                        Hub summary
+  devices list [--room R] [--domain light|switch|sensor|binary_sensor] [--q text]
+  devices get <target>          State and accepted commands
+  call <target> <action> [--brightness N] [--kelvin K] [--hue H --saturation S]
+                                Actions: ${actions.filter((a) => a !== 'raw').join(', ')}
+  call <target> <capability>.<command> [--params JSON]
+  rooms list
+  tokens list | tokens create <name> [--scope read|control|admin] | tokens revoke <id>
+  mcp                           MCP server over stdio (for Claude Desktop, Cursor, ...)
+
+Targets are entity ids (light.kitchen), device ids (zigbee:0x...), names or aliases.
+Add --json to any client command for machine-readable output.
+`;
+
+// `pnpm livynq -- start` forwards the separator literally; it is never meaningful here.
+const argv = process.argv.slice(2).filter((arg, i) => !(i === 0 && arg === '--'));
+
+const { values: flags, positionals } = parseArgs({
+  args: argv,
+  allowPositionals: true,
+  strict: false,
+  options: {
+    data: { type: 'string' },
+    port: { type: 'string' },
+    host: { type: 'string' },
+    demo: { type: 'boolean' },
+    mqtt: { type: 'string' },
+    'builtin-broker': { type: 'boolean' },
+    'no-homekit': { type: 'boolean' },
+    'log-level': { type: 'string' },
+    url: { type: 'string' },
+    token: { type: 'string' },
+    json: { type: 'boolean' },
+    room: { type: 'string' },
+    domain: { type: 'string' },
+    q: { type: 'string' },
+    scope: { type: 'string' },
+    params: { type: 'string' },
+    brightness: { type: 'string' },
+    kelvin: { type: 'string' },
+    hue: { type: 'string' },
+    saturation: { type: 'string' },
+    help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean', short: 'v' },
+  },
+});
+
+const str = (k: string) => (typeof flags[k] === 'string' ? (flags[k] as string) : undefined);
+const num = (k: string) => (str(k) === undefined ? undefined : Number(str(k)));
+const asJson = Boolean(flags.json);
+
+function overrides(): ConfigOverrides {
+  return {
+    dataDir: str('data'),
+    port: num('port'),
+    host: str('host'),
+    demo: flags.demo ? true : undefined,
+    homekit: flags['no-homekit'] ? false : undefined,
+    mqttUrl: str('mqtt'),
+    builtinBroker: flags['builtin-broker'] ? true : undefined,
+    logLevel: str('log-level'),
+  };
+}
+
+function client(): RemoteClient {
+  const config = loadConfig(overrides());
+  return new RemoteClient(resolveRemote({ url: str('url'), token: str('token'), dataDir: config.dataDir, port: config.server.port }));
+}
+
+function print(human: string, data: unknown): void {
+  process.stdout.write(`${asJson ? JSON.stringify(data, null, 2) : human}\n`);
+}
+
+async function run(): Promise<void> {
+  const [cmd, sub, ...rest] = positionals;
+  if (flags.version) return print(VERSION, { version: VERSION });
+  if (!cmd || flags.help || cmd === 'help') return void process.stdout.write(HELP);
+
+  switch (cmd) {
+    case 'start': {
+      const { startLivynq } = await import('./start.ts');
+      const instance = await startLivynq(loadConfig(overrides()));
+      const shutdown = async () => {
+        await instance.stop();
+        process.exit(0);
+      };
+      process.once('SIGINT', shutdown);
+      process.once('SIGTERM', shutdown);
+      return;
+    }
+    case 'login-url': {
+      const config = loadConfig(overrides());
+      const remote = resolveRemote({ url: str('url'), token: str('token'), dataDir: config.dataDir, port: config.server.port });
+      return print(`${remote.url}/#token=${remote.token}`, { url: `${remote.url}/#token=${remote.token}` });
+    }
+    case 'status': {
+      const c = client();
+      const [info, devices, rooms] = await Promise.all([c.info(), c.devices(), c.rooms()]);
+      const offline = devices.filter((d) => d.availability === 'offline').length;
+      return print(
+        [
+          `Livynq ${info.version} — up since ${new Date(info.startedAt).toLocaleString()}`,
+          `devices: ${devices.length} (${offline} offline)   rooms: ${rooms.length}`,
+          `adapters: ${info.adapters.join(', ') || 'none'}   homekit: ${info.homekit.enabled ? 'on' : 'off'}`,
+        ].join('\n'),
+        { ...info, rooms: rooms.length, offline },
+      );
+    }
+    case 'devices': {
+      const c = client();
+      if (sub === 'get' && rest[0]) {
+        const device = await c.device(rest[0]);
+        const summary = { ...summarizeDevice(device), info: device.info, commands: describeCommands(device) };
+        return print(JSON.stringify(summary, null, 2), summary);
+      }
+      if (sub && sub !== 'list') throw new ApiError(400, 'INVALID_PARAMS', `Unknown subcommand devices ${sub}`);
+      const devices = await c.devices({ room: str('room'), domain: str('domain'), q: str('q') });
+      return print(table(deviceRows(devices)), devices.map(summarizeDevice));
+    }
+    case 'call': {
+      const target = sub;
+      const what = rest[0];
+      if (!target || !what) throw new ApiError(400, 'INVALID_PARAMS', 'Usage: livynq call <target> <action | capability.command>');
+      const body = what.includes('.')
+        ? { capability: what.split('.')[0]!, command: what.split('.')[1]!, params: str('params') ? (JSON.parse(str('params')!) as Record<string, unknown>) : {} }
+        : actionToCommand(what as Action, {
+            brightness: num('brightness'),
+            colorTemperature: num('kelvin'),
+            hue: num('hue'),
+            saturation: num('saturation'),
+          });
+      const c = client();
+      const device = await c.device(target);
+      const endpointId = endpointForTarget(device, target, body.capability);
+      await c.command(device.id, endpointId, body);
+      return print(`ok: ${device.name} ← ${body.capability}.${body.command}`, { ok: true, deviceId: device.id, endpointId, ...body });
+    }
+    case 'rooms': {
+      const rooms = await client().rooms();
+      return print(table(rooms.map((r) => ({ id: r.id, name: r.name, aliases: r.aliases.join(', ') }))), rooms);
+    }
+    case 'tokens': {
+      const c = client();
+      if (sub === 'create') {
+        const scope = (str('scope') ?? 'read') as TokenScope;
+        const created = await c.request<{ token: string; info: { id: string } }>('POST', '/api/v1/tokens', { name: rest[0] ?? 'token', scope });
+        return print(`${created.token}\n(shown once; scope: ${scope})`, created);
+      }
+      if (sub === 'revoke' && rest[0]) {
+        await c.request('DELETE', `/api/v1/tokens/${encodeURIComponent(rest[0])}`);
+        return print('revoked', { ok: true });
+      }
+      const tokens = await c.request<Record<string, unknown>[]>('GET', '/api/v1/tokens');
+      return print(
+        table(tokens.map((t) => ({ ...t, createdAt: new Date(Number(t.createdAt)).toLocaleString(), lastUsedAt: t.lastUsedAt ? new Date(Number(t.lastUsedAt)).toLocaleString() : '' }))),
+        tokens,
+      );
+    }
+    case 'mcp': {
+      const c = client();
+      const me = await c.request<{ token: { name: string; scope: TokenScope } }>('GET', '/api/v1/auth/me');
+      await serveMcpStdio({ api: c, scope: me.token.scope, clientName: me.token.name, version: VERSION });
+      return;
+    }
+    default:
+      throw new ApiError(400, 'INVALID_PARAMS', `Unknown command "${cmd}"`, 'Run "livynq help"');
+  }
+}
+
+run().catch((err: unknown) => {
+  const e = err instanceof ApiError ? err : { code: (err as { code?: string }).code ?? 'ERROR', message: err instanceof Error ? err.message : String(err), hint: undefined };
+  if (asJson) process.stdout.write(`${JSON.stringify({ error: { code: e.code, message: e.message, hint: e.hint } })}\n`);
+  else process.stderr.write(`error: ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ''}\n`);
+  process.exit(e.code === 'UNREACHABLE' ? 3 : e.code === 'UNAUTHORIZED' || e.code === 'FORBIDDEN' ? 4 : e.code === 'NOT_FOUND' ? 5 : 1);
+});

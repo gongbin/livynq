@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.livynq/
+*.log
+.DS_Store
+coverage/
+apps/web/dist/
+.claude/

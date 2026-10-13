@@ -1,0 +1,25 @@
+{
+  "name": "livynq",
+  "version": "0.1.0",
+  "description": "Lightweight, local-first, agent-native smart home hub",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "livynq": "./src/main.ts"
+  },
+  "engines": {
+    "node": ">=24.6"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.6",
+    "@fastify/websocket": "^11.3.4",
+    "@livynq/adapter-mqtt": "workspace:*",
+    "@livynq/agent": "workspace:*",
+    "@livynq/core": "workspace:*",
+    "@livynq/exporter-homekit": "workspace:*",
+    "@livynq/model": "workspace:*",
+    "fastify": "^5.12.5",
+    "pino": "^10.4.0",
+    "yaml": "^2.9.1"
+  }
+}

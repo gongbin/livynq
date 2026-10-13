@@ -1,0 +1,14 @@
+{
+  "name": "@livynq/exporter-homekit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/model": "workspace:*",
+    "hap-nodejs": "^0.14.3"
+  }
+}

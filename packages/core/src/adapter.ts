@@ -1,0 +1,40 @@
+import type { AttributeValue, Availability, Device, DeviceDefinition, DeviceId } from '@livynq/model';
+import type { Logger } from './logger.ts';
+import type { Home } from './home.ts';
+
+export type CommandHandler = (params: Record<string, unknown>) => void | Promise<void>;
+
+/** Protocol adapter: brings external devices into the unified capability model. */
+export interface Adapter {
+  readonly id: string;
+  start(ctx: AdapterContext): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/** Ecosystem exporter: exposes Livynq devices to HomeKit, Matter, MQTT... */
+export interface Exporter {
+  readonly id: string;
+  start(home: Home): Promise<void>;
+  stop(): Promise<void>;
+}
+
+export interface DeviceHandle {
+  readonly id: DeviceId;
+  readonly device: Device;
+  update(endpointId: number, capability: string, attributes: Record<string, AttributeValue>): void;
+  /** Current value as known by the core (last reported or persisted). */
+  get(endpointId: number, capability: string, attribute: string): AttributeValue | undefined;
+  setAvailability(availability: Availability): void;
+  handle(endpointId: number, capability: string, handlers: Record<string, CommandHandler>): void;
+}
+
+export interface AdapterContext {
+  readonly log: Logger;
+  readonly dataDir: string;
+  upsertDevice(def: DeviceDefinition): DeviceHandle;
+  removeDevice(id: DeviceId): void;
+  /** Devices this adapter registered in earlier runs (useful to mark them offline or clean up). */
+  knownDevices(): Device[];
+  /** Stable numeric endpoint id for an adapter specific key. */
+  endpointId(deviceId: DeviceId, key: string): number;
+}

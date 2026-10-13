@@ -1,0 +1,273 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. The raw palette lives on :root (light) and [data-theme='dark'];
+ * values are taken verbatim from the Livynq design prototype. `@theme inline`
+ * maps them to Tailwind utilities (bg-surface, text-muted, rounded-card, ...)
+ * so components never hard-code colors.
+ */
+:root {
+  --outer: oklch(0.9 0.012 70);
+  --bg: oklch(0.968 0.008 75);
+  --surface: oklch(0.993 0.004 80);
+  --surface2: oklch(0.952 0.01 75);
+  --ink: oklch(0.26 0.018 55);
+  --muted: oklch(0.5 0.018 60);
+  --line: oklch(0.9 0.01 70);
+  --chip: oklch(0.935 0.011 75);
+  --amber: oklch(0.8 0.14 72);
+  --on-amber: oklch(0.28 0.06 55);
+  --amber-soft: oklch(0.95 0.045 82);
+  --amber-ink: oklch(0.5 0.12 60);
+  --floor: oklch(0.975 0.007 80);
+  --floor-lit: oklch(0.96 0.04 82);
+  --wall: oklch(0.62 0.02 60);
+  --ok: oklch(0.58 0.12 150);
+  --ok-soft: oklch(0.94 0.04 150);
+  --alert: oklch(0.58 0.17 30);
+  --alert-soft: oklch(0.95 0.035 35);
+  --shadow: 0 1px 2px oklch(0.3 0.02 60 / 0.05), 0 6px 20px oklch(0.3 0.02 60 / 0.05);
+  --overlay: oklch(0.2 0.02 60 / 0.35);
+  --sheet-shadow: 0 10px 40px oklch(0.2 0.02 60 / 0.25);
+  --glow-mix: 30%;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --outer: oklch(0.14 0.008 60);
+  --bg: oklch(0.19 0.01 60);
+  --surface: oklch(0.235 0.012 60);
+  --surface2: oklch(0.215 0.011 60);
+  --ink: oklch(0.95 0.01 80);
+  --muted: oklch(0.72 0.015 70);
+  --line: oklch(0.31 0.012 60);
+  --chip: oklch(0.3 0.012 60);
+  --amber: oklch(0.8 0.14 72);
+  --on-amber: oklch(0.25 0.06 55);
+  --amber-soft: oklch(0.32 0.055 68);
+  --amber-ink: oklch(0.85 0.12 75);
+  --floor: oklch(0.26 0.012 60);
+  --floor-lit: oklch(0.32 0.05 70);
+  --wall: oklch(0.55 0.02 60);
+  --ok: oklch(0.72 0.13 150);
+  --ok-soft: oklch(0.3 0.05 150);
+  --alert: oklch(0.64 0.17 30);
+  --alert-soft: oklch(0.3 0.06 30);
+  --shadow: 0 1px 2px #0003;
+  --overlay: oklch(0.1 0.01 60 / 0.55);
+  --sheet-shadow: 0 10px 40px #0006;
+  --glow-mix: 22%;
+  color-scheme: dark;
+}
+
+/* "Follow system": same dark set when no explicit theme is chosen. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --outer: oklch(0.14 0.008 60);
+    --bg: oklch(0.19 0.01 60);
+    --surface: oklch(0.235 0.012 60);
+    --surface2: oklch(0.215 0.011 60);
+    --ink: oklch(0.95 0.01 80);
+    --muted: oklch(0.72 0.015 70);
+    --line: oklch(0.31 0.012 60);
+    --chip: oklch(0.3 0.012 60);
+    --amber: oklch(0.8 0.14 72);
+    --on-amber: oklch(0.25 0.06 55);
+    --amber-soft: oklch(0.32 0.055 68);
+    --amber-ink: oklch(0.85 0.12 75);
+    --floor: oklch(0.26 0.012 60);
+    --floor-lit: oklch(0.32 0.05 70);
+    --wall: oklch(0.55 0.02 60);
+    --ok: oklch(0.72 0.13 150);
+    --ok-soft: oklch(0.3 0.05 150);
+    --alert: oklch(0.64 0.17 30);
+    --alert-soft: oklch(0.3 0.06 30);
+    --shadow: 0 1px 2px #0003;
+    --overlay: oklch(0.1 0.01 60 / 0.55);
+    --sheet-shadow: 0 10px 40px #0006;
+    --glow-mix: 22%;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: 'Manrope Variable', Manrope, system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --color-outer: var(--outer);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-chip: var(--chip);
+  --color-amber: var(--amber);
+  --color-on-amber: var(--on-amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-ink: var(--amber-ink);
+  --color-floor: var(--floor);
+  --color-floor-lit: var(--floor-lit);
+  --color-wall: var(--wall);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-alert: var(--alert);
+  --color-alert-soft: var(--alert-soft);
+  --color-overlay: var(--overlay);
+
+  --shadow-card: var(--shadow);
+  --shadow-sheet: var(--sheet-shadow);
+
+  --radius-ctl: 12px;
+  --radius-tile: 16px;
+  --radius-card: 20px;
+  --radius-panel: 24px;
+
+  --ease-out-soft: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --transition-duration-fast: 150ms;
+  --transition-duration-base: 200ms;
+  --transition-duration-slow: 250ms;
+
+  --animate-sheet-up: sheet-up 250ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  --animate-sheet-left: sheet-left 250ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  --animate-fade-in: fade-in 200ms ease-out;
+  --animate-toast-in: toast-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+}
+@keyframes sheet-left {
+  from { transform: translateX(24px); opacity: 0; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes toast-in {
+  from { transform: translateY(8px); opacity: 0; }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 300ms;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  button:not(:disabled),
+  [role='button'] {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--amber-ink);
+    outline-offset: 2px;
+    border-radius: 10px;
+  }
+  a {
+    color: var(--amber-ink);
+  }
+  a:hover {
+    color: var(--ink);
+  }
+  ::selection {
+    background: var(--amber-soft);
+    color: var(--ink);
+  }
+}
+
+@layer components {
+  /* Range input styled as a soft pill; --fill (0..100%) paints the active part,
+     --track overrides the whole track (e.g. color temperature gradient). */
+  .lv-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 28px;
+    background: transparent;
+    --fill: 50%;
+    --fill-color: var(--amber);
+    --track: linear-gradient(to right, var(--fill-color) 0 var(--fill), var(--chip) var(--fill) 100%);
+  }
+  .lv-range::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--track);
+  }
+  .lv-range::-moz-range-track {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--track);
+  }
+  .lv-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -7px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 0;
+    box-shadow: 0 1px 3px #0004, 0 0 0 1px var(--line);
+    transition: transform 150ms;
+  }
+  .lv-range::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 0;
+    box-shadow: 0 1px 3px #0004, 0 0 0 1px var(--line);
+  }
+  .lv-range:active::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  .lv-range:focus-visible {
+    outline-offset: 4px;
+  }
+  .lv-range:disabled {
+    opacity: 0.5;
+  }
+
+  .lv-scroll-x {
+    scrollbar-width: none;
+  }
+  .lv-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+
+  .lv-spin {
+    animation: lv-spin 900ms linear infinite;
+  }
+  @keyframes lv-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .pb-safe {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
