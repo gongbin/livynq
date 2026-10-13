@@ -307,6 +307,26 @@
     to { transform: translateX(250%); }
   }
 
+  /* Motion detected on the floor plan: a ring expanding from the marker. */
+  .lv-ping {
+    top: 0;
+    opacity: 0.55;
+    animation: lv-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+  @keyframes lv-ping {
+    75%,
+    100% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
+  }
+
+  /* Floor plan canvas: a faint dot grid on the surface. */
+  .lv-plan-bg {
+    background-color: var(--surface);
+    background-image: radial-gradient(circle, color-mix(in oklab, var(--wall) 22%, transparent) 1px, transparent 1.2px);
+  }
+
   .lv-spin-slow {
     animation: lv-spin 2.4s linear infinite;
   }

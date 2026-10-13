@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DeviceDTO, Room } from '@livynq/model';
 import { DeviceCard } from '../components/device-card.tsx';
 import { DeviceSheet } from '../components/device-sheet.tsx';
 import { Icon } from '../components/icons.tsx';
+import { HomeSpace } from '../components/plan/home-space.tsx';
 import { Button, EmptyState, Segmented, cx } from '../components/ui.tsx';
 import { openAddDevice } from '../lib/add-device.ts';
 import { deviceKind, lightState, readings, round1, sortDevices } from '../lib/devices.ts';
+import { readView, writeView, type HomeView } from '../lib/floorplan.ts';
 import { formatDateLine } from '../lib/format.ts';
 import { useLang, useT, type Translate } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
@@ -13,6 +15,7 @@ import { href } from '../lib/router.ts';
 import { useCan } from '../lib/session.ts';
 
 const OTHER = '__other';
+const VIEW_KEY = 'livynq.home.view';
 
 export interface RoomGroup {
   id: string;
@@ -70,6 +73,11 @@ export function HomePage() {
   const devices = useMemo(() => Object.values(byId), [byId]);
   const [room, setRoom] = useState<string>('all');
   const [open, setOpen] = useState<string | null>(null);
+  const [view, setViewState] = useState<HomeView>(() => readView(VIEW_KEY));
+  const setView = useCallback((v: HomeView) => {
+    setViewState(v);
+    writeView(VIEW_KEY, v);
+  }, []);
   const now = useNow();
   const canAdmin = useCan('admin');
   const summary = useSummary(devices, rooms, t);
@@ -91,12 +99,12 @@ export function HomePage() {
         <div className="flex flex-wrap items-center gap-2">
           <Segmented
             label={t('home.view.label')}
-            value="cards"
-            onChange={() => undefined}
+            value={view}
+            onChange={setView}
             options={[
               { value: 'cards', label: t('home.view.cards'), icon: 'grid' },
-              { value: 'plan', label: t('home.view.plan'), icon: 'map', disabled: true, title: t('common.soon'), hint: <SoonPip label={t('common.soon')} /> },
-              { value: '3d', label: t('home.view.3d'), icon: 'box', disabled: true, title: t('common.soon'), hint: <SoonPip label={t('common.soon')} /> },
+              { value: 'plan', label: t('home.view.plan'), icon: 'map' },
+              { value: '3d', label: t('home.view.3d'), icon: 'box' },
             ]}
           />
           <a href={href('wall')} aria-label={t('nav.wall')} title={t('nav.wall')} className="grid size-11 place-items-center rounded-[13px] bg-chip text-ink! md:hidden">
@@ -108,7 +116,7 @@ export function HomePage() {
         </div>
       </div>
 
-      {ready && groups.length > 1 && (
+      {ready && view === 'cards' && groups.length > 1 && (
         <div className="lv-scroll-x -mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0" role="tablist" aria-label={t('nav.rooms')}>
           {[{ id: 'all', name: t('home.all') }, ...groups].map((g) => (
             <button
@@ -128,7 +136,9 @@ export function HomePage() {
         </div>
       )}
 
-      {!ready ? (
+      {view !== 'cards' && ready ? (
+        <HomeSpace view={view} onView={setView} onOpen={setOpen} />
+      ) : !ready ? (
         <CardSkeleton />
       ) : devices.length === 0 ? (
         <EmptyState icon="home" title={t('home.empty.title')} body={canAdmin ? t('add.emptyBody') : t('home.empty.body')}>
@@ -164,14 +174,6 @@ export function DeviceGrid({ devices, onOpen, large }: { devices: DeviceDTO[]; o
         <DeviceCard key={d.id} device={d} onOpen={() => onOpen(d.id)} large={large} />
       ))}
     </div>
-  );
-}
-
-function SoonPip({ label }: { label: string }) {
-  return (
-    <span className="hidden rounded-full bg-amber-soft px-1.5 py-px text-[9.5px] font-extrabold tracking-wide text-amber-ink sm:inline" title={label}>
-      {label}
-    </span>
   );
 }
 

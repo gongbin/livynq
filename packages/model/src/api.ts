@@ -41,7 +41,7 @@ export interface ApiErrorBody {
 }
 
 export type WsServerMessage =
-  | { type: 'snapshot'; devices: DeviceDTO[]; rooms: Room[] }
+  | { type: 'snapshot'; devices: DeviceDTO[]; rooms: Room[]; levels: Level[] }
   | { type: 'device'; device: DeviceDTO }
   | { type: 'device.removed'; id: string }
   | { type: 'state'; deviceId: string; endpointId: number; capability: string; attribute: string; value: unknown; source: string; ts: number }

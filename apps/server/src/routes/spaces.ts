@@ -49,6 +49,14 @@ export function registerSpaceRoutes(app: FastifyInstance, home: Home, guards: { 
     const updatedAt = Date.now();
     return home.spaces.updateLevel(level.id, { background: { contentType: type, updatedAt, widthMeters, url: `/api/v1/levels/${level.id}/background?v=${updatedAt}` } });
   });
+  // Rescale the tracing image without re-uploading it.
+  app.patch('/api/v1/levels/:id/background', admin, async (req) => {
+    const level = home.spaces.getLevel(id(req));
+    if (!level.background) throw new LivynqError('NOT_FOUND', 'No background for this level');
+    const widthMeters = Number((req.body as { widthMeters?: unknown } | undefined)?.widthMeters);
+    if (!(widthMeters > 0 && widthMeters < 1000)) throw new LivynqError('INVALID_PARAMS', 'widthMeters must be between 0 and 1000');
+    return home.spaces.updateLevel(level.id, { background: { ...level.background, widthMeters } });
+  });
   app.delete('/api/v1/levels/:id/background', admin, async (req) => {
     for (const e of Object.values(IMAGE_TYPES)) rmSync(join(assets, `${id(req)}.${e}`), { force: true });
     return home.spaces.updateLevel(id(req), { background: null });

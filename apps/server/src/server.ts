@@ -164,6 +164,10 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   app.patch('/api/v1/rooms/:id', admin, async (req) => {
     const body = (req.body ?? {}) as { name?: string; aliases?: string[]; sortOrder?: number; levelId?: string | null; polygon?: [number, number][] | null; color?: string | null };
     if (body.levelId) home.spaces.getLevel(body.levelId);
+    const roomId = (req.params as { id: string }).id;
+    const levelAfter = body.levelId !== undefined ? body.levelId : home.registry.listRooms().find((r) => r.id === roomId)?.levelId;
+    const polygonAfter = body.polygon !== undefined ? body.polygon : home.registry.listRooms().find((r) => r.id === roomId)?.polygon;
+    if (polygonAfter && !levelAfter) throw new LivynqError('INVALID_PARAMS', 'A room outline needs a levelId');
     return home.registry.updateRoom((req.params as { id: string }).id, body);
   });
   app.delete('/api/v1/rooms/:id', admin, async (req, reply) => {
@@ -249,7 +253,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const send = (msg: WsServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
     };
-    send({ type: 'snapshot', devices: home.registry.listDevices().map((d) => toDeviceDTO(home, d)), rooms: home.registry.listRooms() });
+    send({ type: 'snapshot', devices: home.registry.listDevices().map((d) => toDeviceDTO(home, d)), rooms: home.registry.listRooms(), levels: home.spaces.listLevels() });
     const off = home.bus.onAny((event, payload) => {
       switch (event) {
         case 'state': {

@@ -178,7 +178,10 @@ test('floor plan API: levels, outlines, placement, background, scene', async () 
   const level = (await req('POST', '/api/v1/levels', admin, { name: '一楼' })).json();
   const kitchen = home.registry.findRoom('Kitchen')!;
   assert.equal((await req('PATCH', `/api/v1/rooms/${kitchen.id}`, admin, { levelId: 'missing' })).statusCode, 404);
+  const bedroom = home.registry.findRoom('Bedroom')!;
+  assert.equal((await req('PATCH', `/api/v1/rooms/${bedroom.id}`, admin, { polygon: [[0, 0], [1, 0], [1, 1]] })).statusCode, 400, 'an outline needs a level');
   assert.equal((await req('PATCH', `/api/v1/rooms/${kitchen.id}`, admin, { levelId: level.id, polygon: [[0, 0], [3, 0], [3, 3], [0, 3]] })).statusCode, 200);
+  assert.equal((await req('PATCH', `/api/v1/rooms/${kitchen.id}`, admin, { levelId: null })).statusCode, 400, 'cannot drop the level of an outlined room');
   const placed = (await req('PUT', '/api/v1/devices/demo:coffee-plug/placement', admin, { levelId: level.id, x: 1, y: 1, mount: 'wall' })).json();
   assert.equal(placed.roomId, kitchen.id);
   const plan = (await req('GET', '/api/v1/floorplan', reader)).json();
@@ -191,6 +194,10 @@ test('floor plan API: levels, outlines, placement, background, scene', async () 
   assert.equal(bg.json().background.widthMeters, 14);
   const img = await app.inject({ method: 'GET', url: `${bg.json().background.url}&token=${reader}` });
   assert.equal(img.headers['content-type'], 'image/svg+xml');
+  const scaled = (await req('PATCH', `/api/v1/levels/${level.id}/background`, admin, { widthMeters: 9.5 })).json();
+  assert.equal(scaled.background.widthMeters, 9.5);
+  assert.equal(scaled.background.url, bg.json().background.url, 'same image');
+  assert.equal((await req('PATCH', `/api/v1/levels/${level.id}/background`, admin, { widthMeters: -1 })).statusCode, 400);
 
   assert.equal((await req('PUT', `/api/v1/levels/${level.id}/scene`, admin, { data: { nodes: {} } })).statusCode, 200);
   assert.deepEqual((await req('GET', `/api/v1/levels/${level.id}/scene`, reader)).json().data, { nodes: {} });

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WallSettings } from '@livynq/model';
 import { DeviceSheet } from '../components/device-sheet.tsx';
 import { GlassContext, glassBackground } from '../components/glass.tsx';
 import { Icon } from '../components/icons.tsx';
+import { HomeSpace } from '../components/plan/home-space.tsx';
 import { Sheet } from '../components/sheet.tsx';
-import { IconButton, cx } from '../components/ui.tsx';
+import { IconButton, SectionLabel, Segmented, cx } from '../components/ui.tsx';
 import { WallSettingsForm } from '../components/wall-settings-form.tsx';
 import { withToken } from '../lib/api.ts';
+import { readView, writeView, type HomeView } from '../lib/floorplan.ts';
 import { formatDateLine, formatTime } from '../lib/format.ts';
 import { useLang, useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
@@ -51,6 +53,12 @@ export function WallPage() {
   const summary = useSummary(devices, rooms, t);
   const [open, setOpen] = useState<string | null>(null);
   const [customize, setCustomize] = useState(false);
+  // Per tablet: what the wall shows below the clock.
+  const [view, setViewState] = useState<HomeView>(() => readView('livynq.wall.view'));
+  const setView = useCallback((v: HomeView) => {
+    setViewState(v);
+    writeView('livynq.wall.view', v);
+  }, []);
   const look = useWallLook();
   const hasImage = look.background !== null;
   const glass = useMemo(() => (hasImage ? { opacity: look.cardOpacity } : null), [hasImage, look.cardOpacity]);
@@ -103,7 +111,8 @@ export function WallPage() {
                 </a>
               </div>
             </div>
-            {groupByRoom(devices, rooms, t('home.other')).map((g) => (
+            {view !== 'cards' && <HomeSpace view={view} onView={setView} onOpen={setOpen} wall />}
+            {view === 'cards' && groupByRoom(devices, rooms, t('home.other')).map((g) => (
               <section key={g.id} aria-label={g.name} className="flex flex-col gap-3">
                 <h2 className={cx('m-0 text-lg font-extrabold', hasImage ? 'lv-shadow-text text-ink' : 'text-muted')}>{g.name}</h2>
                 <DeviceGrid devices={g.devices} onOpen={setOpen} large />
@@ -121,6 +130,19 @@ export function WallPage() {
               <p className="mt-1 mb-0 text-[13px] leading-relaxed text-muted">{t('wall.subtitle')}</p>
             </div>
             <IconButton icon="x" label={t('common.close')} onClick={() => setCustomize(false)} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <SectionLabel>{t('wall.view')}</SectionLabel>
+            <Segmented
+              label={t('wall.view')}
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'cards', label: t('home.view.cards'), icon: 'grid' },
+                { value: 'plan', label: t('home.view.plan'), icon: 'map' },
+                { value: '3d', label: t('home.view.3d'), icon: 'box' },
+              ]}
+            />
           </div>
           <WallSettingsForm preview={false} />
         </Sheet>

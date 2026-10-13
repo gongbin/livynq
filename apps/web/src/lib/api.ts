@@ -5,6 +5,8 @@ import type {
   DeviceDTO,
   ExposurePolicy,
   HomeKitBridgeInfo,
+  Level,
+  Placement,
   Risk,
   Room,
   SystemInfo,
@@ -47,6 +49,22 @@ export interface DevicePatch {
   roomId?: string | null;
   aliases?: string[];
   exposure?: Partial<ExposurePolicy>;
+}
+
+/** `GET /api/v1/floorplan` (apps/server/src/routes/spaces.ts). */
+export interface FloorPlanDTO {
+  levels: Level[];
+  rooms: Room[];
+  placements: { deviceId: string; placement: Placement }[];
+  adjacency: Record<string, string[]>;
+}
+
+export interface RoomPatch {
+  name?: string;
+  sortOrder?: number;
+  levelId?: string | null;
+  polygon?: [number, number][] | null;
+  color?: string | null;
 }
 
 export type RunState = 'running' | 'finished' | 'stopped' | 'error' | 'aborted';
@@ -224,8 +242,18 @@ export const api = {
 
   rooms: () => request<Room[]>('GET', '/rooms'),
   createRoom: (name: string) => request<Room>('POST', '/rooms', { name }),
-  updateRoom: (id: string, patch: { name?: string; sortOrder?: number }) => request<Room>('PATCH', `/rooms/${enc(id)}`, patch),
+  updateRoom: (id: string, patch: RoomPatch) => request<Room>('PATCH', `/rooms/${enc(id)}`, patch),
   deleteRoom: (id: string) => request<void>('DELETE', `/rooms/${enc(id)}`),
+
+  floorPlan: () => request<FloorPlanDTO>('GET', '/floorplan'),
+  createLevel: (name: string, elevation?: number) => request<Level>('POST', '/levels', elevation === undefined ? { name } : { name, elevation }),
+  updateLevel: (id: string, patch: { name?: string; elevation?: number; sortOrder?: number }) => request<Level>('PATCH', `/levels/${enc(id)}`, patch),
+  deleteLevel: (id: string) => request<void>('DELETE', `/levels/${enc(id)}`),
+  deleteLevelBackground: (id: string) => request<Level>('DELETE', `/levels/${enc(id)}/background`),
+  scaleLevelBackground: (id: string, widthMeters: number) => request<Level>('PATCH', `/levels/${enc(id)}/background`, { widthMeters }),
+  uploadLevelBackground: (id: string, image: Blob, widthMeters: number, onProgress?: (fraction: number) => void) =>
+    upload<Level>(`/api/v1/levels/${enc(id)}/background?widthMeters=${widthMeters}`, image, onProgress),
+  placeDevice: (id: string, placement: Placement | null) => request<{ roomId: string | null }>('PUT', `/devices/${enc(id)}/placement`, placement),
 
   homekit: () => request<{ enabled: boolean; bridges: HomeKitBridgeInfo[] }>('GET', '/homekit'),
 
@@ -256,7 +284,7 @@ export const api = {
   uiSettings: () => request<{ wall: WallSettings }>('GET', '/ui/settings'),
   updateWallSettings: (wall: Partial<Pick<WallSettings, 'cardOpacity' | 'backgroundBlur' | 'backgroundDim'>>) => request<{ wall: WallSettings }>('PATCH', '/ui/settings', { wall }),
   deleteWallBackground: () => request<{ wall: WallSettings }>('DELETE', '/ui/wall-background'),
-  uploadWallBackground,
+  uploadWallBackground: (image: Blob, onProgress?: (fraction: number) => void) => upload<{ wall: WallSettings }>('/api/v1/ui/wall-background', image, onProgress),
 
   onboarding: () => request<Onboarding>('GET', '/onboarding'),
   plugins: () => request<PluginInfo[]>('GET', '/plugins'),
@@ -268,12 +296,12 @@ export const api = {
   serialPorts: () => request<{ path: string; label: string }[]>('GET', '/system/serial-ports'),
 };
 
-/** XHR rather than fetch: fetch cannot report upload progress. */
-function uploadWallBackground(image: Blob, onProgress?: (fraction: number) => void): Promise<{ wall: WallSettings }> {
+/** Raw image PUT. XHR rather than fetch: fetch cannot report upload progress. */
+function upload<T>(url: string, image: Blob, onProgress?: (fraction: number) => void): Promise<T> {
   const token = auth.get();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', '/api/v1/ui/wall-background');
+    xhr.open('PUT', url);
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.setRequestHeader('Content-Type', image.type);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
@@ -285,7 +313,7 @@ function uploadWallBackground(image: Blob, onProgress?: (fraction: number) => vo
       } catch {
         data = undefined;
       }
-      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as { wall: WallSettings });
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as T);
       if (xhr.status === 401 && token === auth.get()) signOut();
       const err = (data as ApiErrorBody | undefined)?.error ?? { code: 'HTTP_' + xhr.status, message: xhr.statusText || 'Upload failed' };
       reject(new ApiError(xhr.status, err));

@@ -1,4 +1,4 @@
-import type { AttributeValue, CommandBody, DeviceDTO, Room, WsClientMessage, WsServerMessage } from '@livynq/model';
+import type { AttributeValue, CommandBody, DeviceDTO, Level, Room, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { ApiError, api, auth } from './api.ts';
 import { AwaitingApproval, clearConfirmations, loadPendingConfirmations, upsertConfirmation } from './confirmations.ts';
 import { createStore, useStore } from './store.ts';
@@ -12,17 +12,30 @@ export interface LiveState {
   ready: boolean;
   devices: Record<string, DeviceDTO>;
   rooms: Room[];
+  /** Floors of the floor plan; `null` until the first snapshot. */
+  levels: Level[] | null;
   /** Keys (see pendingKey) of commands waiting for the device to report back. */
   pending: ReadonlySet<string>;
 }
 
-const initial: LiveState = { status: 'connecting', ready: false, devices: {}, rooms: [], pending: new Set() };
+const initial: LiveState = { status: 'connecting', ready: false, devices: {}, rooms: [], levels: null, pending: new Set() };
 export const live = createStore<LiveState>(initial);
 export const useLive = () => useStore(live);
 
 export const pendingKey = (deviceId: string, endpointId: number, capability: string) => `${deviceId}#${endpointId}/${capability}`;
 
 const sortRooms = (rooms: Room[]) => [...rooms].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+const sortLevels = (levels: Level[]) => [...levels].sort((a, b) => a.sortOrder - b.sortOrder || a.elevation - b.elevation);
+
+/** Applies a level returned by a REST call right away (the socket echo follows). */
+export function upsertLevel(level: Level): void {
+  live.set((s) => ({ ...s, levels: sortLevels([...(s.levels ?? []).filter((l) => l.id !== level.id), level]) }));
+}
+
+/** Applies a room returned by a REST call right away (the socket echo follows). */
+export function upsertRoom(room: Room): void {
+  live.set((s) => ({ ...s, rooms: sortRooms([...s.rooms.filter((r) => r.id !== room.id), room]) }));
+}
 
 // --------------------------------------------------------------------------- pending commands
 //
@@ -108,7 +121,7 @@ let wanted = false;
 function apply(msg: WsServerMessage): void {
   switch (msg.type) {
     case 'snapshot':
-      live.set((s) => ({ ...s, ready: true, devices: Object.fromEntries(msg.devices.map((d) => [d.id, d])), rooms: sortRooms(msg.rooms) }));
+      live.set((s) => ({ ...s, ready: true, devices: Object.fromEntries(msg.devices.map((d) => [d.id, d])), rooms: sortRooms(msg.rooms), levels: sortLevels(msg.levels) }));
       // A (re)connect may have missed live updates: resync what is not part of the snapshot.
       void loadPendingConfirmations();
       void loadWallSettings();
@@ -130,6 +143,9 @@ function apply(msg: WsServerMessage): void {
       return;
     case 'rooms':
       live.set((s) => ({ ...s, rooms: sortRooms(msg.rooms) }));
+      return;
+    case 'levels':
+      live.set((s) => ({ ...s, levels: sortLevels(msg.levels) }));
       return;
     case 'state':
       live.set((s) => {

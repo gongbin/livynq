@@ -120,7 +120,6 @@ export class Spaces {
     this.#storage
       .sql('INSERT INTO scene_documents (level_id, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(level_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at')
       .run(levelId, json, updatedAt);
-    this.#bus.emit('levels.changed', this.listLevels());
     return { updatedAt };
   }
 
