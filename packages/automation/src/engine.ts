@@ -73,6 +73,8 @@ class StopRun extends Error {
 class Run {
   readonly trace: Trace;
   readonly controller = new AbortController();
+  /** Settles when the run has finished and its trace is written. */
+  done: Promise<void> = Promise.resolve();
 
   constructor(automationId: string, trigger: TriggerVars) {
     const { description, ...vars } = trigger;
@@ -110,12 +112,14 @@ export class AutomationEngine implements Exporter {
   #env!: RuntimeEnv;
   #tracker!: EntityStateTracker;
   readonly #entries = new Map<string, Entry>();
+  #stopping = false;
 
   constructor(options: AutomationEngineOptions = {}) {
     this.#options = options;
   }
 
   async start(home: Home): Promise<void> {
+    this.#stopping = false;
     this.#home = home;
     this.#log = home.log.child({ extension: 'automations' });
     this.#tracker = new EntityStateTracker(home);
@@ -141,14 +145,21 @@ export class AutomationEngine implements Exporter {
   }
 
   async stop(): Promise<void> {
+    this.#stopping = true;
     for (const listener of this.#env.lifecycle) listener('shutdown');
     // Give shutdown automations a moment, then abort everything.
     const deadline = Date.now() + 2000;
     while ([...this.#entries.values()].some((e) => e.runs.size) && Date.now() < deadline) await sleep(50);
+    const pending: Promise<void>[] = [];
     for (const entry of this.#entries.values()) {
       entry.disarm?.();
-      for (const run of entry.runs) run.controller.abort();
+      for (const run of entry.runs) {
+        run.controller.abort();
+        pending.push(run.done);
+      }
     }
+    // Aborted runs write their trace; that must happen before the hub closes the database.
+    await Promise.allSettled(pending);
     this.#tracker.stop();
   }
 
@@ -366,10 +377,10 @@ export class AutomationEngine implements Exporter {
     entry.runs.add(run);
     entry.info.lastTriggered = run.trace.startedAt;
     this.#home.storage.sql('UPDATE automations SET last_triggered = ? WHERE id = ?').run(run.trace.startedAt, automation.id);
-    void this.#execute(entry, run, skipConditions).finally(() => {
+    run.done = this.#execute(entry, run, skipConditions).finally(() => {
       entry.runs.delete(run);
       const next = entry.queue.shift();
-      if (next && entry.info.enabled) this.#onTrigger(entry, next, false);
+      if (next && entry.info.enabled && !this.#stopping) this.#onTrigger(entry, next, false);
     });
     return run.trace.runId;
   }
@@ -395,7 +406,8 @@ export class AutomationEngine implements Exporter {
       }
     } finally {
       trace.finishedAt = Date.now();
-      this.#persistTrace(trace);
+      // A deleted automation keeps no history.
+      if (this.#entries.get(automation.id) === entry) this.#persistTrace(trace);
     }
   }
 

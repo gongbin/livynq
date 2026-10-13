@@ -180,3 +180,26 @@ test('automations, traces and enabled state persist across restarts; start trigg
   }
 });
 
+
+test('deleting an automation or stopping the hub mid-run leaves no late writes', async () => {
+  const late: unknown[] = [];
+  const onLate = (err: unknown) => late.push(err);
+  process.on('unhandledRejection', onLate);
+  try {
+    const { home, engine } = await setup();
+    const slow = { alias: 'Slow', triggers: [{ trigger: 'time', at: '07:00' }], actions: [{ delay: '00:00:30' }] };
+    engine.save({ ...slow, id: 'gone' }, 'test');
+    engine.trigger('gone');
+    engine.remove('gone');
+    await sleep(20);
+    assert.equal(home.storage.sql("SELECT COUNT(*) AS n FROM automation_traces WHERE automation_id = 'gone'").get()!.n, 0, 'no trace for a deleted automation');
+
+    engine.save({ ...slow, id: 'busy' }, 'test');
+    engine.trigger('busy');
+    await home.stop(); // waits ~2 s for shutdown automations, then aborts and awaits the run
+    await sleep(20);
+    assert.deepEqual(late, []);
+  } finally {
+    process.off('unhandledRejection', onLate);
+  }
+});
