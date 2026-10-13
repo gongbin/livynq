@@ -1,0 +1,18 @@
+{
+  "name": "@livynq/plugin-hue",
+  "version": "0.1.0",
+  "description": "Philips Hue bridges over the local CLIP v2 API",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*",
+    "bonjour-service": "1.4.4"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}

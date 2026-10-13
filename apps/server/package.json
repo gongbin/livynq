@@ -23,6 +23,7 @@
     "@livynq/model": "workspace:*",
     "@livynq/plugin-homeassistant": "workspace:*",
     "@livynq/plugin-host": "workspace:*",
+    "@livynq/plugin-hue": "workspace:*",
     "@livynq/plugin-matter": "workspace:*",
     "@livynq/plugin-shelly": "workspace:*",
     "@livynq/plugin-virtual": "workspace:*",

@@ -217,6 +217,9 @@ importers:
       '@livynq/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
+      '@livynq/plugin-hue':
+        specifier: workspace:*
+        version: link:../../plugins/hue
       '@livynq/plugin-matter':
         specifier: workspace:*
         version: link:../../plugins/matter
@@ -449,6 +452,22 @@ importers:
       ws:
         specifier: 8.22.0
         version: 8.22.0
+
+  plugins/hue:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      bonjour-service:
+        specifier: 1.4.4
+        version: 1.4.4
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/matter:
     dependencies:

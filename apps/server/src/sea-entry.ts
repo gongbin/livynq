@@ -8,6 +8,7 @@ import virtualPlugin from '@livynq/plugin-virtual';
 import homeAssistantPlugin from '@livynq/plugin-homeassistant';
 import matterPlugin from '@livynq/plugin-matter';
 import shellyPlugin from '@livynq/plugin-shelly';
+import huePlugin from '@livynq/plugin-hue';
 import { bundledPlugins } from './bundled.ts';
 
 if (process.env.LIVYNQ_ROLE === 'plugin-host') {
@@ -20,5 +21,6 @@ if (process.env.LIVYNQ_ROLE === 'plugin-host') {
   bundledPlugins['@livynq/plugin-homeassistant'] = homeAssistantPlugin;
   bundledPlugins['@livynq/plugin-matter'] = matterPlugin;
   bundledPlugins['@livynq/plugin-shelly'] = shellyPlugin;
+  bundledPlugins['@livynq/plugin-hue'] = huePlugin;
   void import('./main.ts');
 }

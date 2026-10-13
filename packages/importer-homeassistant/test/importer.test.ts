@@ -50,7 +50,7 @@ test('plan is a read-only dry run with a precise report', async () => {
   assert.deepEqual(bulb.entities, [{ haEntityId: 'light.lounge_lamp', livynqEntityId: 'light.hall_bulb', status: 'rename' }]);
   const sensor = plan.devices.find((d) => d.haDeviceId === 'dev-sensor')!;
   assert.equal(sensor.entities.find((e) => e.haEntityId === 'sensor.kitchen_pressure')?.status, 'missing');
-  assert.match(plan.devices.find((d) => d.haDeviceId === 'dev-hue')!.reason!, /hue: not supported yet/);
+  assert.match(plan.devices.find((d) => d.haDeviceId === 'dev-hue')!.reason!, /Philips Hue: pair the bridge/);
   assert.match(plan.automations.find((a) => a.alias === 'Templated')!.errors[0]!, /templates are not supported/);
   assert.match(plan.automations.find((a) => a.alias === 'Blueprint')!.errors[0]!, /blueprint/);
   assert.deepEqual(plan.notImported, { scripts: 1, scenes: 0, blueprints: 1, floors: 1 });
