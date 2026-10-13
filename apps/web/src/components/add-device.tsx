@@ -7,7 +7,7 @@ import { describe, roomName } from '../lib/devices.ts';
 import { useT, type MessageKey } from '../lib/i18n.ts';
 import { live, useLive } from '../lib/live.ts';
 import { useCan } from '../lib/session.ts';
-import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel } from './add-device-methods.tsx';
+import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, ShellyPanel, ZWavePanel } from './add-device-methods.tsx';
 import { toneStyle } from './device-card.tsx';
 import { DeviceSheet } from './device-sheet.tsx';
 import { Icon, type IconName } from './icons.tsx';
@@ -33,7 +33,9 @@ interface MethodMeta {
 const METHODS: MethodMeta[] = [
   { id: 'matter', icon: 'share', name: 'Matter', desc: 'add.m.matter', tags: 'Apple · Google · Amazon · SmartThings' },
   { id: 'zigbee', icon: 'usb', name: 'Zigbee', desc: 'add.m.zigbee', tags: 'Aqara · IKEA · Hue · Tuya' },
+  { id: 'zwave', icon: 'activity', name: 'Z-Wave', desc: 'add.m.zwave', tags: 'Aeotec · Fibaro · Zooz · Inovelli' },
   { id: 'esphome', icon: 'cpu', name: 'ESPHome', desc: 'add.m.esphome' },
+  { id: 'shelly', icon: 'zap', name: 'Shelly', desc: 'add.m.shelly', tags: 'Plus · Pro · Gen3 · Gen4' },
   { id: 'mqtt', icon: 'radio', name: 'MQTT', desc: 'add.m.mqtt', tags: 'Zigbee2MQTT · Tasmota · ESPHome' },
   { id: 'homeassistant', icon: 'home', name: 'Home Assistant', desc: 'add.m.ha' },
   { id: 'virtual', icon: 'toggle', name: '', desc: 'add.m.virtual' },
@@ -311,8 +313,12 @@ function MethodPanel(props: PanelProps) {
       return <MatterPanel {...props} method={method} />;
     case 'zigbee':
       return <ZigbeePanel {...props} method={method} />;
+    case 'zwave':
+      return <ZWavePanel {...props} method={method} />;
     case 'esphome':
       return <EspHomePanel {...props} method={method} />;
+    case 'shelly':
+      return <ShellyPanel {...props} method={method} />;
     case 'homeassistant':
       return <HomeAssistantPanel {...props} method={method} />;
     case 'virtual':

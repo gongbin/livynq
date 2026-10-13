@@ -68,6 +68,7 @@ export default defineAdapter({
     // S2 inclusion: grant what the device asks for; a PIN (from the device label) comes in via the "pin" action.
     let pending: { dsk: string; resolve: (pin: string | false) => void } | undefined;
     let lastIncluded: { nodeId: number; at: number; lowSecurity?: boolean } | undefined;
+    let lastRemoved: { nodeId: number; at: number } | undefined;
     const userCallbacks = {
       grantSecurityClasses: async (requested: { securityClasses: number[]; clientSideAuth: boolean }) => requested,
       validateDSKAndEnterPIN: (dsk: string) =>
@@ -184,6 +185,7 @@ export default defineAdapter({
         attach(node as unknown as ZNode);
       });
       driver.controller.on('node removed', (node) => {
+        lastRemoved = { nodeId: node.id, at: Date.now() };
         const d = devices.get(node.id);
         devices.delete(node.id);
         if (d) void ctx.devices.remove(d.device.id);
@@ -213,9 +215,10 @@ export default defineAdapter({
       pending = undefined;
       return { ok: true };
     });
-    ctx.actions.register('exclude', 'Remove (reset) a device: start, then press the pairing button on the device', async () => ({
-      started: await ctrl().beginExclusion({ strategy: ExclusionStrategy.Unprovision }),
-    }));
+    ctx.actions.register('exclude', 'Remove (reset) a device: start, then press the pairing button on the device', async () => {
+      lastRemoved = undefined;
+      return { started: await ctrl().beginExclusion({ strategy: ExclusionStrategy.Unprovision }) };
+    });
     ctx.actions.register('stop', 'Stop inclusion / exclusion', async () => {
       userCallbacks.abort();
       const c = ctrl();
@@ -229,6 +232,7 @@ export default defineAdapter({
         nodes: c.nodes.size - 1,
         ...(pending ? { pinRequired: true, dsk: pending.dsk } : {}),
         ...(lastIncluded ? { lastIncluded: { ...lastIncluded, deviceId: deviceId(lastIncluded.nodeId) } } : {}),
+        ...(lastRemoved ? { lastRemoved } : {}),
       };
     });
     ctx.actions.register('provision', 'SmartStart: add a device by its QR code ("90…" string); it joins as soon as it is powered', async (p) => {

@@ -27,7 +27,9 @@ export function chooseMethod(method: OnboardingMethodId | null): void {
 const sources: Record<OnboardingMethodId, { adapter: string; protocol: string }> = {
   matter: { adapter: 'matter', protocol: 'matter' },
   zigbee: { adapter: 'zigbee', protocol: 'zigbee' },
+  zwave: { adapter: 'zwave', protocol: 'zwave' },
   esphome: { adapter: 'esphome', protocol: 'esphome' },
+  shelly: { adapter: 'shelly', protocol: 'shelly' },
   homeassistant: { adapter: 'homeassistant', protocol: 'ha' },
   virtual: { adapter: 'virtual', protocol: 'virtual' },
   mqtt: { adapter: 'mqtt', protocol: 'mqtt' },
@@ -68,6 +70,21 @@ export function isPairingCodeComplete(code: string): boolean {
   if (/^MT:[0-9A-Z.\-]{10,}$/.test(code)) return true;
   const n = code.replace(/\D/g, '').length;
   return !/^[a-z]/i.test(code) && (n === 11 || n === 21);
+}
+
+// ---------------------------------------------------------------- Z-Wave
+
+/** SmartStart QR codes are 52+ digits starting with "90". */
+export function isZwaveQr(text: string): boolean {
+  return /^90\d{50,}$/.test(text.trim());
+}
+
+/**
+ * zwave-js hands over the DSK without its first five digits (the PIN on the label):
+ * "-34567-…" → ["", "34567", …]. Returns the groups after the PIN.
+ */
+export function dskRest(dsk: string): string[] {
+  return dsk.split('-').filter(Boolean).slice(dsk.startsWith('-') ? 0 : 1);
 }
 
 export type CommissionError = 'code' | 'notFound' | 'network' | 'timeout' | 'other';

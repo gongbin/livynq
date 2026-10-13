@@ -60,7 +60,7 @@ function fakeShelly(password: string) {
   const sockets = new Set<WebSocket>();
   const calls: string[] = [];
   const server = createServer((req, res) => {
-    if (req.url === '/shelly') return res.end(JSON.stringify({ id: 'shellyplus1pm-aabbcc', mac: 'AABBCCDDEEFF', model: 'SNSW-001P16EU', gen: 2, app: 'Plus1PM' }));
+    if (req.url === '/shelly') return res.end(JSON.stringify({ id: 'shellyplus1pm-aabbcc', mac: 'AABBCCDDEEFF', model: 'SNSW-001P16EU', gen: 2, app: 'Plus1PM', auth_en: true }));
     res.statusCode = 404;
     res.end();
   });

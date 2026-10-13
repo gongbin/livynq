@@ -37,8 +37,12 @@ interface DeviceInfo {
 
 type Status = Record<string, Record<string, unknown>>;
 
-function runHost(ctx: PluginContext, cfg: HostConfig, src: string): { close(): void; connection: ShellyConnection } {
+/** What the "Add device" wizard shows per host. */
+type HostState = 'connecting' | 'online' | 'auth' | 'offline' | 'error';
+
+function runHost(ctx: PluginContext, cfg: HostConfig, src: string): { close(): void; state(): HostState; connection: ShellyConnection } {
   const conn = new ShellyConnection({ host: cfg.host, password: cfg.password, src });
+  let state: HostState = 'connecting';
   let device: PluginDevice | undefined;
   let plans: { plan: ComponentPlan; endpointId: number }[] = [];
 
@@ -91,13 +95,19 @@ function runHost(ctx: PluginContext, cfg: HostConfig, src: string): { close(): v
     }
     apply(status);
     dev.setAvailability('online');
+    state = 'online';
     ctx.log.info(`${cfg.host}: connected (${info.model ?? info.app})`, { id, components: plans.length });
   };
 
   conn.on('open', () => {
     void publish().catch((err: Error) => {
-      if (err instanceof RpcError && err.code === 401) ctx.log.warn(`${cfg.host}: ${err.message} — set the device password in the Shelly plugin`);
-      else ctx.log.error(`${cfg.host}: failed to read the device`, { error: err.message });
+      if (err instanceof RpcError && err.code === 401) {
+        state = 'auth';
+        ctx.log.warn(`${cfg.host}: ${err.message} — set the device password in the Shelly plugin`);
+      } else {
+        state = 'error';
+        ctx.log.error(`${cfg.host}: failed to read the device`, { error: err.message });
+      }
     });
   });
   conn.on('notify', (method: string, params: Record<string, unknown>) => {
@@ -110,18 +120,21 @@ function runHost(ctx: PluginContext, cfg: HostConfig, src: string): { close(): v
       }
     }
   });
-  conn.on('close', () => device?.setAvailability('offline'));
+  conn.on('close', () => {
+    if (state !== 'auth') state = 'offline';
+    device?.setAvailability('offline');
+  });
   conn.on('error', (err: Error) => ctx.log.debug(err.message));
   conn.connect();
-  return { close: () => conn.close(), connection: conn };
+  return { close: () => conn.close(), state: () => state, connection: conn };
 }
 
 /** Gen1 devices have no RPC API; tell the user instead of failing silently. */
-async function probe(host: string): Promise<{ gen: number; model?: string }> {
+async function probe(host: string): Promise<{ gen: number; model?: string; auth: boolean }> {
   const res = await fetch(`http://${host}/shelly`, { signal: AbortSignal.timeout(5000) }).catch(() => undefined);
   if (!res?.ok) throw new Error(`No Shelly device answers at ${host}`);
-  const body = (await res.json()) as { gen?: number; model?: string; type?: string };
-  return { gen: body.gen ?? 1, model: body.model ?? body.type };
+  const body = (await res.json()) as { gen?: number; model?: string; type?: string; auth_en?: boolean; auth?: boolean };
+  return { gen: body.gen ?? 1, model: body.model ?? body.type, auth: Boolean(body.auth_en ?? body.auth) };
 }
 
 export default defineAdapter({
@@ -137,7 +150,7 @@ export default defineAdapter({
     }
     const save = () => writeFileSync(savedFile, JSON.stringify(saved, null, 2), { mode: 0o600 });
     const src = `livynq-${randomBytes(4).toString('hex')}`;
-    const hosts = new Map<string, { close(): void }>();
+    const hosts = new Map<string, { close(): void; state(): HostState }>();
     const discovered = new Map<string, { host: string; name: string; model?: string; at: number }>();
 
     const add = (cfg: HostConfig) => {
@@ -152,11 +165,12 @@ export default defineAdapter({
       if (!host) throw new Error('host is required (e.g. 192.168.1.50)');
       const found = await probe(host);
       if (found.gen < 2) throw new Error(`${host} is a first-generation Shelly (${found.model ?? 'Gen1'}); only Gen2 and newer (Plus, Pro, Gen3, Gen4) are supported`);
+      if (found.auth && !p.password && !defaultPassword) throw new Error(`${host} has authentication enabled; enter its password`);
       const cfg: HostConfig = { host, ...(p.password ? { password: String(p.password) } : {}) };
       saved = [...saved.filter((s) => s.host.toLowerCase() !== host.toLowerCase()), cfg];
       save();
       add(cfg);
-      return { added: host, model: found.model };
+      return { added: host, model: found.model, auth: found.auth };
     });
     ctx.actions.register('remove', 'Disconnect a Shelly device added from the UI: { host }', (p) => {
       const host = String(p.host ?? '').toLowerCase();
@@ -167,7 +181,10 @@ export default defineAdapter({
       return { removed: host };
     });
     ctx.actions.register('discovered', 'Shelly devices found on the network via mDNS', () =>
-      [...discovered.values()].map((d) => ({ ...d, connected: hosts.has(d.host.toLowerCase()) })),
+      [...discovered.values()].map((d) => {
+        const h = hosts.get(d.host.toLowerCase());
+        return { ...d, connected: Boolean(h), ...(h ? { state: h.state() } : {}) };
+      }),
     );
 
     let stopDiscovery = () => {};

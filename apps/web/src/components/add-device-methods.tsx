@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { DeviceDTO } from '@livynq/model';
 import {
   canScanQr,
   classifyCommissionError,
   createQrDetector,
+  dskRest,
+  isZwaveQr,
   formatPairingCode,
   isPairingCodeComplete,
   slugId,
@@ -302,7 +305,7 @@ function CommissionFailed({ error, message, onRetry, canRetry }: { error: Commis
 }
 
 /** Camera viewfinder using the browser's own BarcodeDetector (no scanning library). */
-function QrScanner({ onResult, onClose }: { onResult: (text: string) => void; onClose: () => void }) {
+function QrScanner({ onResult, onClose, accept = /^MT:/i }: { onResult: (text: string) => void; onClose: () => void; accept?: RegExp }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -326,7 +329,7 @@ function QrScanner({ onResult, onClose }: { onResult: (text: string) => void; on
           if (stopped || !detector) return;
           try {
             const codes = await detector.detect(v);
-            const matter = codes.find((c) => /^MT:/i.test(c.rawValue));
+            const matter = codes.find((c) => accept.test(c.rawValue.trim()));
             if (matter) return done.current(matter.rawValue.trim());
             if (codes.length) setWrong(true);
           } catch {
@@ -389,12 +392,12 @@ export function ZigbeePanel({ method, canAdmin, added, reload, openDevice, healt
   );
 }
 
-function ZigbeeEnable({ method, canAdmin, reload }: { method: PluginMethod; canAdmin: boolean; reload: () => Promise<void> }) {
+/** USB / serial stick chooser shared by Zigbee and Z-Wave: detected ports, rescan, or a typed path. */
+function useSerialPicker(canAdmin: boolean, labels: { label: MessageKey; empty: MessageKey } = { label: 'add.zigbee.port', empty: 'add.zigbee.noPorts' }): { path: string; field: ReactNode } {
   const t = useT();
   const [ports, setPorts] = useState<{ path: string; label: string }[] | null>(null);
   const [choice, setChoice] = useState('');
   const [custom, setCustom] = useState('');
-  const [adapter, setAdapter] = useState('');
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -416,20 +419,13 @@ function ZigbeeEnable({ method, canAdmin, reload }: { method: PluginMethod; canA
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAdmin]);
 
-  const serialPort = choice === CUSTOM ? custom.trim() : choice;
-  return (
-    <EnablePlugin
-      method={method}
-      canAdmin={canAdmin}
-      intro={t('add.zigbee.enableIntro')}
-      onEnabled={reload}
-      config={() => (serialPort ? { serialPort, ...(adapter ? { adapter } : {}) } : null)}
-    >
-      {ports && ports.length === 0 && <Note icon="usb">{t('add.zigbee.noPorts')}</Note>}
+  const field = (
+    <>
+      {ports && ports.length === 0 && <Note icon="usb">{t(labels.empty)}</Note>}
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <SelectField
-            label={t('add.zigbee.port')}
+            label={t(labels.label)}
             value={choice}
             onChange={setChoice}
             disabled={!ports}
@@ -441,6 +437,24 @@ function ZigbeeEnable({ method, canAdmin, reload }: { method: PluginMethod; canA
       {choice === CUSTOM && (
         <TextField label={t('add.zigbee.portPath')} value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="/dev/ttyUSB0" hint={t('add.zigbee.portPathHint')} spellCheck={false} autoCapitalize="off" />
       )}
+    </>
+  );
+  return { path: choice === CUSTOM ? custom.trim() : choice, field };
+}
+
+function ZigbeeEnable({ method, canAdmin, reload }: { method: PluginMethod; canAdmin: boolean; reload: () => Promise<void> }) {
+  const t = useT();
+  const [adapter, setAdapter] = useState('');
+  const serial = useSerialPicker(canAdmin);
+  return (
+    <EnablePlugin
+      method={method}
+      canAdmin={canAdmin}
+      intro={t('add.zigbee.enableIntro')}
+      onEnabled={reload}
+      config={() => (serial.path ? { serialPort: serial.path, ...(adapter ? { adapter } : {}) } : null)}
+    >
+      {serial.field}
       <SelectField label={t('add.zigbee.adapter')} value={adapter} onChange={setAdapter} options={ADAPTERS.map((a) => ({ value: a.value, label: a.value ? a.label : t('add.zigbee.adapterAuto') }))} />
     </EnablePlugin>
   );
@@ -741,6 +755,506 @@ function EspManual({ canAdmin }: { canAdmin: boolean }) {
           </div>
         )}
       </form>
+    </Panel>
+  );
+}
+
+// ================================================================ Z-Wave
+
+interface ZStatus {
+  homeId: string;
+  inclusionState: string;
+  nodes: number;
+  pinRequired?: boolean;
+  dsk?: string;
+  lastIncluded?: { nodeId: number; at: number; lowSecurity?: boolean; deviceId: string };
+  lastRemoved?: { nodeId: number; at: number };
+}
+
+export function ZWavePanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  if (!method.enabled) return <ZWaveEnable method={method} canAdmin={canAdmin} reload={reload} />;
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {(!health || health.status === 'running') && (
+        <>
+          <ZWaveInclusion canAdmin={canAdmin} added={added} />
+          <AddedDevices devices={added} openDevice={openDevice} />
+          <ZWaveSmartStart canAdmin={canAdmin} />
+        </>
+      )}
+      <Panel title={t('add.zwave.tipsTitle')} icon="info">
+        <Steps items={[t('add.zwave.tip1'), t('add.zwave.tip2'), t('add.zwave.tip3')]} />
+      </Panel>
+    </>
+  );
+}
+
+function ZWaveEnable({ method, canAdmin, reload }: { method: PluginMethod; canAdmin: boolean; reload: () => Promise<void> }) {
+  const t = useT();
+  const serial = useSerialPicker(canAdmin, { label: 'add.zwave.stick', empty: 'add.zwave.noPorts' });
+  return (
+    <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.zwave.enableIntro')} onEnabled={reload} config={() => (serial.path ? { port: serial.path } : null)}>
+      {serial.field}
+      <Note icon="key">{t('add.zwave.keysNote')}</Note>
+    </EnablePlugin>
+  );
+}
+
+function ZWaveInclusion({ canAdmin, added }: { canAdmin: boolean; added: DeviceDTO[] }) {
+  const t = useT();
+  const [status, setStatus] = useState<ZStatus | null>(null);
+  // What was started from this panel, and when (older results belong to someone else).
+  const [run, setRun] = useState<{ mode: 'include' | 'exclude'; at: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pin, setPin] = useState('');
+
+  const refresh = async () => {
+    try {
+      setStatus(await api.pluginAction<ZStatus>('zwave', 'status'));
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  useEffect(() => {
+    if (!canAdmin) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (!cancelled) timer = setTimeout(poll, 1500);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAdmin]);
+
+  const act = async (action: 'include' | 'exclude' | 'stop' | 'pin') => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.pluginAction<{ started?: boolean }>('zwave', action, action === 'pin' ? { pin } : {});
+      if (action === 'include' || action === 'exclude') {
+        if (res.started === false) setError(t('add.zwave.busy'));
+        else setRun({ mode: action, at: Date.now() - 2000 });
+      }
+      if (action === 'pin') setPin('');
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const state = status?.inclusionState ?? 'idle';
+  const active = state === 'including' || state === 'excluding';
+  const joined = run?.mode === 'include' && status?.lastIncluded && status.lastIncluded.at >= run.at ? status.lastIncluded : undefined;
+  const removed = run?.mode === 'exclude' && status?.lastRemoved && status.lastRemoved.at >= run.at ? status.lastRemoved : undefined;
+  const ready = joined && added.some((d) => d.id === joined.deviceId);
+  const body = state === 'including' ? t('add.zwave.includingBody') : state === 'excluding' ? t('add.zwave.excludingBody') : state === 'idle' ? t('add.zwave.idleBody') : t('add.zwave.otherBody', { state });
+
+  return (
+    <Panel
+      title={t('add.zwave.pairTitle')}
+      icon="activity"
+      aside={active ? <Badge tone="amber">{state === 'including' ? t('add.zwave.adding') : t('add.zwave.removing')}</Badge> : status ? <Badge>{t('add.zwave.nodes', { n: status.nodes })}</Badge> : undefined}
+    >
+      <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
+        <div className="relative grid size-[112px] shrink-0 place-items-center rounded-full bg-chip" aria-hidden="true">
+          <Icon name={state === 'excluding' ? 'trash' : 'activity'} size={30} className={active ? 'text-amber-ink' : 'text-muted'} />
+          {active && <span className="lv-pulse absolute inset-0 rounded-full border-2 border-amber/40" />}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-3 max-sm:items-center max-sm:text-center">
+          <p className="m-0 text-[13.5px] leading-relaxed text-pretty">{body}</p>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {canAdmin ? (
+            <div className="flex flex-wrap gap-2">
+              {active ? (
+                <Button variant="primary" icon="stop" busy={busy} onClick={() => void act('stop')}>
+                  {t('add.zwave.stop')}
+                </Button>
+              ) : (
+                <>
+                  <Button variant="amber" icon="plus" busy={busy} disabled={!status} onClick={() => void act('include')}>
+                    {t('add.zwave.include')}
+                  </Button>
+                  <Button variant="ghost" icon="trash" disabled={busy || !status} onClick={() => void act('exclude')}>
+                    {t('add.zwave.exclude')}
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : (
+            <Note icon="lock">{t('add.adminOnlyAction')}</Note>
+          )}
+        </div>
+      </div>
+      {status?.pinRequired && canAdmin && (
+        <form
+          className="flex flex-col gap-3 rounded-[14px] bg-amber-soft p-3.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (/^\d{5}$/.test(pin)) void act('pin');
+          }}
+        >
+          <div className="flex items-start gap-2.5">
+            <Icon name="key" size={17} className="mt-0.5 shrink-0 text-amber-ink" />
+            <div className="min-w-0 text-[13px] leading-relaxed text-pretty">
+              <div className="font-bold">{t('add.zwave.pinTitle')}</div>
+              {t('add.zwave.pinBody')}
+            </div>
+          </div>
+          {status.dsk && (
+            <div className="overflow-x-auto font-mono text-[13px] font-bold tracking-[0.04em] whitespace-nowrap">
+              <span className="text-amber-ink">_____</span>
+              {dskRest(status.dsk).map((g) => `-${g}`).join('')}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 5))}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="12345"
+              aria-label={t('add.zwave.pinLabel')}
+              className="min-h-12 w-[9ch] rounded-ctl border border-line bg-surface px-3.5 font-mono text-[20px] font-bold tracking-[0.12em] text-ink outline-none placeholder:text-muted/60 focus:border-amber-ink"
+            />
+            <Button type="submit" variant="amber" icon="check" busy={busy} disabled={pin.length !== 5}>
+              {t('add.zwave.pinSubmit')}
+            </Button>
+          </div>
+        </form>
+      )}
+      {joined && (
+        <Note icon={joined.lowSecurity ? 'shieldAlert' : ready ? 'circleCheck' : 'loader'} tone={joined.lowSecurity ? 'amber' : 'ok'}>
+          {ready ? t('add.zwave.joinedReady', { node: joined.nodeId }) : t('add.zwave.joinedInterview', { node: joined.nodeId })}
+          {joined.lowSecurity && <div className="mt-1">{t('add.zwave.lowSecurity')}</div>}
+        </Note>
+      )}
+      {removed && (
+        <Note icon="circleCheck" tone="ok">
+          {t('add.zwave.removed', { node: removed.nodeId })}
+        </Note>
+      )}
+    </Panel>
+  );
+}
+
+function ZWaveSmartStart({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [qr, setQr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanSupported, setScanSupported] = useState(false);
+  useEffect(() => {
+    void canScanQr().then(setScanSupported);
+  }, []);
+
+  const valid = isZwaveQr(qr);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await api.pluginAction('zwave', 'provision', { qr: qr.trim() });
+      setDone(true);
+      setQr('');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel title={t('add.zwave.smartTitle')} icon="scanQr">
+      <p className="m-0 text-[13px] leading-relaxed text-pretty text-muted">{t('add.zwave.smartBody')}</p>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid && canAdmin) void submit();
+        }}
+      >
+        <div className="flex items-end gap-2">
+          <TextField
+            className="min-w-0 flex-1 [&_input]:font-mono"
+            label={t('add.zwave.qrLabel')}
+            value={qr}
+            onChange={(e) => {
+              setQr(e.target.value.replace(/\s/g, ''));
+              setDone(false);
+            }}
+            placeholder="9001234…"
+            inputMode="numeric"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={!canAdmin}
+          />
+          {scanSupported && canAdmin && (
+            <Button className="min-h-11 shrink-0" icon="scanQr" onClick={() => setScanning(true)}>
+              <span className="max-sm:sr-only">{t('add.matter.scan')}</span>
+            </Button>
+          )}
+        </div>
+        {qr && !valid && <div className="text-xs text-muted">{t('add.zwave.qrInvalid')}</div>}
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {done && (
+          <Note icon="circleCheck" tone="ok">
+            {t('add.zwave.provisioned')}
+          </Note>
+        )}
+        {canAdmin && (
+          <div>
+            <Button type="submit" variant="amber" icon="plus" busy={busy} disabled={!valid}>
+              {t('add.zwave.provision')}
+            </Button>
+          </div>
+        )}
+      </form>
+      {scanning && (
+        <QrScanner
+          accept={/^90\d{50,}$/}
+          onClose={() => setScanning(false)}
+          onResult={(text) => {
+            setScanning(false);
+            setQr(text);
+            toast(t('add.matter.scanned'));
+          }}
+        />
+      )}
+    </Panel>
+  );
+}
+
+// ================================================================ Shelly
+
+type ShellyState = 'connecting' | 'online' | 'auth' | 'offline' | 'error';
+interface ShellyFound {
+  host: string;
+  name: string;
+  model?: string;
+  at: number;
+  connected: boolean;
+  state?: ShellyState;
+}
+
+export function ShellyPanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  if (!method.enabled) return <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.shelly.enableIntro')} onEnabled={reload} />;
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {(!health || health.status === 'running') && (
+        <>
+          <ShellyDiscovered canAdmin={canAdmin} />
+          <AddedDevices devices={added} openDevice={openDevice} />
+          <ShellyManual canAdmin={canAdmin} />
+        </>
+      )}
+    </>
+  );
+}
+
+function ShellyDiscovered({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [list, setList] = useState<ShellyFound[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  // Hosts the user asked to connect that need a password (from the device or from a failed attempt).
+  const [asking, setAsking] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    if (!canAdmin) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const res = await api.pluginAction<ShellyFound[]>('shelly', 'discovered');
+        if (!cancelled) (setList(res), setError(null));
+      } catch (e) {
+        if (!cancelled) setError(errorMessage(e));
+      }
+      if (!cancelled) timer = setTimeout(poll, 3000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [canAdmin]);
+
+  const connect = async (d: ShellyFound, pw?: string) => {
+    setConnecting(d.host);
+    try {
+      await api.pluginAction('shelly', 'add', { host: d.host, ...(pw ? { password: pw } : {}) });
+      toast(t('add.shelly.connecting', { host: d.name || d.host }), 'info');
+      setAsking(null);
+      setPassword('');
+      setList((l) => l?.map((x) => (x.host === d.host ? { ...x, connected: true, state: 'connecting' } : x)) ?? l);
+    } catch (e) {
+      if (/authentication|password/i.test(errorMessage(e))) setAsking(d.host);
+      else toast(errorMessage(e), 'error');
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  return (
+    <Panel title={t('add.esphome.foundTitle')} icon="network" aside={list && canAdmin ? <Spinner size={14} className="text-muted" /> : undefined}>
+      {!canAdmin ? (
+        <Note icon="lock">{t('add.adminOnlyAction')}</Note>
+      ) : error ? (
+        <ErrorNote>{error}</ErrorNote>
+      ) : !list ? (
+        <div className="grid place-items-center py-6 text-muted">
+          <Spinner size={18} />
+        </div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-5 text-center">
+          <span className="grid size-12 place-items-center rounded-tile bg-chip text-muted">
+            <Icon name="search" size={20} className="lv-pulse" />
+          </span>
+          <div className="text-[14px] font-bold">{t('add.shelly.searching')}</div>
+          <p className="m-0 max-w-sm text-[12.5px] leading-relaxed text-pretty text-muted">{t('add.shelly.searchingHint')}</p>
+        </div>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          {list.map((d) => {
+            const needsPassword = asking === d.host || d.state === 'auth';
+            return (
+              <li key={d.host} className="flex flex-col gap-2.5 rounded-[15px] bg-surface2 p-2.5 pr-3">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-chip">
+                    <Icon name="zap" size={17} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-bold">{d.name}</span>
+                    <span className="block truncate font-mono text-[11.5px] text-muted">{[d.model, d.host].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  {d.state === 'online' ? (
+                    <Badge tone="ok">
+                      <Dot tone="ok" />
+                      {t('add.esphome.connected')}
+                    </Badge>
+                  ) : d.state === 'connecting' ? (
+                    <Badge>
+                      <Spinner size={11} />
+                      {t('add.shelly.stateConnecting')}
+                    </Badge>
+                  ) : needsPassword ? (
+                    <Badge tone="amber">
+                      <Icon name="lock" size={12} />
+                      {t('add.shelly.stateAuth')}
+                    </Badge>
+                  ) : (
+                    <Button size="sm" variant={d.connected ? 'chip' : 'amber'} icon={d.connected ? 'rotateCcw' : 'plus'} busy={connecting === d.host} onClick={() => void connect(d)}>
+                      {d.connected ? t('add.shelly.retry') : t('add.esphome.connect')}
+                    </Button>
+                  )}
+                </div>
+                {needsPassword && (
+                  <form
+                    className="flex items-end gap-2 pl-12"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (password) void connect(d, password);
+                    }}
+                  >
+                    <TextField
+                      className="min-w-0 flex-1"
+                      label={t('add.shelly.password')}
+                      type="password"
+                      autoComplete="off"
+                      value={asking === d.host || d.state === 'auth' ? password : ''}
+                      onChange={(e) => {
+                        setAsking(d.host);
+                        setPassword(e.target.value);
+                      }}
+                    />
+                    <Button type="submit" variant="amber" className="min-h-11" busy={connecting === d.host} disabled={!password || (asking !== null && asking !== d.host)}>
+                      {t('add.esphome.connect')}
+                    </Button>
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function ShellyManual({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [host, setHost] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await api.pluginAction<{ model?: string }>('shelly', 'add', { host: host.trim(), ...(password ? { password } : {}) });
+      setNote(t('add.shelly.addedNote', { host: [res.model, host.trim()].filter(Boolean).join(' · ') }));
+      setHost('');
+      setPassword('');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel title={t('add.esphome.manualTitle')} icon="pencil">
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (host.trim() && canAdmin) void submit();
+        }}
+      >
+        <TextField label={t('add.esphome.host')} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} autoCapitalize="off" disabled={!canAdmin} />
+        <TextField
+          label={t('add.shelly.passwordOptional')}
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          hint={t('add.shelly.passwordHint')}
+          autoComplete="off"
+          disabled={!canAdmin}
+        />
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {note && (
+          <Note icon="circleCheck" tone="ok">
+            {note}
+          </Note>
+        )}
+        {canAdmin && (
+          <div>
+            <Button type="submit" variant="amber" icon="plus" busy={busy} disabled={!host.trim()}>
+              {t('add.esphome.add')}
+            </Button>
+          </div>
+        )}
+      </form>
+      <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.shelly.gen1')}</p>
     </Panel>
   );
 }
