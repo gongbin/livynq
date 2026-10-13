@@ -2,6 +2,14 @@ import type { AttributeValue, CommandBody, DeviceDTO, Level, Room, WsClientMessa
 import { ApiError, api, auth } from './api.ts';
 import { AwaitingApproval, clearConfirmations, loadPendingConfirmations, upsertConfirmation } from './confirmations.ts';
 import { createStore, useStore } from './store.ts';
+import type { NotificationDTO } from '@livynq/model';
+
+const notificationListeners = new Set<(n: NotificationDTO) => void>();
+/** Hub notifications (automation notify.notify) while this page is open. */
+export function onNotification(fn: (n: NotificationDTO) => void): () => void {
+  notificationListeners.add(fn);
+  return () => notificationListeners.delete(fn);
+}
 import { clearWallSettings, loadWallSettings, wallSettings } from './wall-settings.ts';
 
 export type LinkStatus = 'connecting' | 'open' | 'closed';
@@ -163,6 +171,10 @@ function apply(msg: WsServerMessage): void {
       return;
     case 'settings':
       wallSettings.set(msg.wall);
+      return;
+    case 'notification':
+      // Approval requests already show as a banner.
+      if (msg.notification.kind === 'message') notificationListeners.forEach((fn) => fn(msg.notification));
       return;
     case 'result':
       if (msg.ok) onResult(msg.id, true);

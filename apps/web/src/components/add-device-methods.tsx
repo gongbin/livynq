@@ -16,6 +16,7 @@ import { useT, type MessageKey } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
 import { AddedDevices, EnablePlugin, Note, Panel, PluginHealth, Steps, type PanelProps } from './add-device.tsx';
 import { Icon } from './icons.tsx';
+import { confirmDialog } from './dialog.tsx';
 import { toast } from './toast.tsx';
 import { Badge, Button, CopyButton, Dot, ErrorNote, SelectField, Spinner, Switch, TextField, cx } from './ui.tsx';
 
@@ -1256,6 +1257,236 @@ function ShellyManual({ canAdmin }: { canAdmin: boolean }) {
       </form>
       <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.shelly.gen1')}</p>
     </Panel>
+  );
+}
+
+// ================================================================ Philips Hue
+
+interface HueBridgeRow {
+  host: string;
+  bridgeId: string | null;
+  name: string | null;
+  state: 'connecting' | 'online' | 'auth' | 'offline';
+  devices: number;
+}
+interface HueFound {
+  host: string;
+  name: string;
+  bridgeId?: string;
+  paired: boolean;
+}
+
+const HUE_PAIR_SECONDS = 40;
+
+export function HuePanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  if (!method.enabled) return <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.hue.enableIntro')} onEnabled={reload} />;
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {(!health || health.status === 'running') && <HueBridges canAdmin={canAdmin} />}
+      <AddedDevices devices={added} openDevice={openDevice} />
+    </>
+  );
+}
+
+function HueBridges({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [bridges, setBridges] = useState<HueBridgeRow[] | null>(null);
+  const [found, setFound] = useState<HueFound[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<{ host: string; until: number } | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [host, setHost] = useState('');
+  const now = useTick(pairing !== null);
+
+  const refresh = async () => {
+    try {
+      const [b, d] = await Promise.all([api.pluginAction<HueBridgeRow[]>('hue', 'bridges'), api.pluginAction<HueFound[]>('hue', 'discovered')]);
+      setBridges(b);
+      setFound(d.filter((x) => !x.paired));
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  useEffect(() => {
+    if (!canAdmin) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (!cancelled) timer = setTimeout(poll, 3000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAdmin]);
+
+  // While waiting for the link button, retry the pairing call every 2.5 s.
+  useEffect(() => {
+    if (!pairing) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = async () => {
+      try {
+        const res = await api.pluginAction<{ paired: boolean; name?: string }>('hue', 'pair', { host: pairing.host });
+        if (cancelled) return;
+        if (res.paired) {
+          setPairing(null);
+          setNote(t('add.hue.pairedNote', { name: res.name ?? pairing.host }));
+          setHost('');
+          void refresh();
+          return;
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setPairing(null);
+          setPairError(errorMessage(e));
+        }
+        return;
+      }
+      if (Date.now() > pairing.until) {
+        setPairing(null);
+        setPairError(t('add.hue.pressTimeout'));
+        return;
+      }
+      timer = setTimeout(attempt, 2500);
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairing?.host, pairing?.until]);
+
+  const pair = (h: string) => {
+    setPairError(null);
+    setNote(null);
+    setPairing({ host: h.trim(), until: Date.now() + HUE_PAIR_SECONDS * 1000 });
+  };
+
+  const remove = async (b: HueBridgeRow) => {
+    const name = b.name ?? b.host;
+    if (!(await confirmDialog({ title: t('add.hue.removeConfirm', { name }), confirmLabel: t('add.hue.remove'), danger: true, icon: 'trash' }))) return;
+    try {
+      await api.pluginAction('hue', 'remove', { bridgeId: b.bridgeId ?? b.host });
+      await refresh();
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
+
+  if (!canAdmin)
+    return (
+      <Panel title={t('add.hue.bridgesTitle')} icon="network">
+        <Note icon="lock">{t('add.adminOnlyAction')}</Note>
+      </Panel>
+    );
+
+  const remaining = pairing ? Math.max(0, Math.ceil((pairing.until - now) / 1000)) : 0;
+  const stateText = (b: HueBridgeRow) => (b.state === 'online' ? t('add.hue.state.online', { n: b.devices }) : t(`add.hue.state.${b.state}` as MessageKey));
+
+  return (
+    <>
+      {pairing && (
+        <Panel title={t('add.hue.pressTitle')} icon="circleDot" aside={<Badge tone="amber">{remaining}s</Badge>}>
+          <div className="flex items-center gap-4">
+            <div className="relative grid size-20 shrink-0 place-items-center rounded-full bg-chip" aria-hidden="true">
+              <span className="size-9 rounded-full border-4 border-amber" />
+              <span className="lv-pulse absolute inset-0 rounded-full border-2 border-amber/40" />
+            </div>
+            <p className="m-0 min-w-0 flex-1 text-[13.5px] leading-relaxed text-pretty">{t('add.hue.pressBody')}</p>
+          </div>
+          <div>
+            <Button size="sm" variant="ghost" onClick={() => setPairing(null)}>
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </Panel>
+      )}
+      {pairError && <ErrorNote>{pairError}</ErrorNote>}
+      {note && (
+        <Note icon="circleCheck" tone="ok">
+          {note}
+        </Note>
+      )}
+      <Panel title={t('add.hue.bridgesTitle')} icon="network" aside={bridges ? <Spinner size={14} className="text-muted" /> : undefined}>
+        {error ? (
+          <ErrorNote>{error}</ErrorNote>
+        ) : !bridges ? (
+          <div className="grid place-items-center py-6 text-muted">
+            <Spinner size={18} />
+          </div>
+        ) : bridges.length === 0 && found.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-5 text-center">
+            <span className="grid size-12 place-items-center rounded-tile bg-chip text-muted">
+              <Icon name="search" size={20} className="lv-pulse" />
+            </span>
+            <div className="text-[14px] font-bold">{t('add.hue.searching')}</div>
+            <p className="m-0 max-w-sm text-[12.5px] leading-relaxed text-pretty text-muted">{t('add.hue.searchingHint')}</p>
+          </div>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {bridges.map((b) => (
+              <li key={b.bridgeId ?? b.host} className="flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-amber-soft text-amber-ink">
+                  <Icon name="bulb" size={17} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold">{b.name ?? 'Hue Bridge'}</span>
+                  <span className="block truncate font-mono text-[11.5px] text-muted">{b.host}</span>
+                </span>
+                {b.state === 'auth' ? (
+                  <Button size="sm" variant="amber" icon="rotateCcw" disabled={pairing !== null} onClick={() => pair(b.host)}>
+                    {t('add.hue.state.auth')}
+                  </Button>
+                ) : (
+                  <Badge tone={b.state === 'online' ? 'ok' : b.state === 'offline' ? 'alert' : 'chip'}>
+                    {b.state === 'online' && <Dot tone="ok" />}
+                    {stateText(b)}
+                  </Badge>
+                )}
+                <Button size="sm" variant="ghost" icon="trash" aria-label={t('add.hue.remove')} onClick={() => void remove(b)} />
+              </li>
+            ))}
+            {found.map((d) => (
+              <li key={d.host} className="flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-chip">
+                  <Icon name="bulb" size={17} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold">{d.name}</span>
+                  <span className="block truncate font-mono text-[11.5px] text-muted">{d.host}</span>
+                </span>
+                <Button size="sm" variant="amber" icon="plus" busy={pairing?.host === d.host} disabled={pairing !== null} onClick={() => pair(d.host)}>
+                  {t('add.hue.pair')}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel title={t('add.hue.manualTitle')} icon="pencil">
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (host.trim() && !pairing) pair(host);
+          }}
+        >
+          <TextField className="min-w-0 flex-1" label={t('add.hue.host')} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.20" spellCheck={false} autoCapitalize="off" />
+          <Button type="submit" variant="amber" className="min-h-11" icon="plus" disabled={!host.trim() || pairing !== null}>
+            {t('add.hue.pair')}
+          </Button>
+        </form>
+      </Panel>
+    </>
   );
 }
 

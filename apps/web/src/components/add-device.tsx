@@ -7,7 +7,7 @@ import { describe, roomName } from '../lib/devices.ts';
 import { useT, type MessageKey } from '../lib/i18n.ts';
 import { live, useLive } from '../lib/live.ts';
 import { useCan } from '../lib/session.ts';
-import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, ShellyPanel, ZWavePanel } from './add-device-methods.tsx';
+import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, HuePanel, ShellyPanel, ZWavePanel } from './add-device-methods.tsx';
 import { toneStyle } from './device-card.tsx';
 import { DeviceSheet } from './device-sheet.tsx';
 import { Icon, type IconName } from './icons.tsx';
@@ -35,6 +35,7 @@ const METHODS: MethodMeta[] = [
   { id: 'zigbee', icon: 'usb', name: 'Zigbee', desc: 'add.m.zigbee', tags: 'Aqara · IKEA · Hue · Tuya' },
   { id: 'zwave', icon: 'activity', name: 'Z-Wave', desc: 'add.m.zwave', tags: 'Aeotec · Fibaro · Zooz · Inovelli' },
   { id: 'esphome', icon: 'cpu', name: 'ESPHome', desc: 'add.m.esphome' },
+  { id: 'hue', icon: 'bulb', name: 'Philips Hue', desc: 'add.m.hue', tags: 'Hue Bridge · Friends of Hue' },
   { id: 'shelly', icon: 'zap', name: 'Shelly', desc: 'add.m.shelly', tags: 'Plus · Pro · Gen3 · Gen4' },
   { id: 'mqtt', icon: 'radio', name: 'MQTT', desc: 'add.m.mqtt', tags: 'Zigbee2MQTT · Tasmota · ESPHome' },
   { id: 'homeassistant', icon: 'home', name: 'Home Assistant', desc: 'add.m.ha' },
@@ -319,6 +320,8 @@ function MethodPanel(props: PanelProps) {
       return <EspHomePanel {...props} method={method} />;
     case 'shelly':
       return <ShellyPanel {...props} method={method} />;
+    case 'hue':
+      return <HuePanel {...props} method={method} />;
     case 'homeassistant':
       return <HomeAssistantPanel {...props} method={method} />;
     case 'virtual':

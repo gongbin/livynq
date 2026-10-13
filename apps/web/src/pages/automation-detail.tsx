@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from '../components/icons.tsx';
 import { toast } from '../components/toast.tsx';
 import { Badge, Button, Card, ConfirmButton, CopyButton, Dot, ErrorNote, SectionLabel, Segmented, Spinner, cx } from '../components/ui.tsx';
@@ -17,6 +17,7 @@ import {
   type FlowKind,
   type SummaryCtx,
 } from '../lib/automation.ts';
+import { editable, traceMarks } from '../lib/automation-flow.ts';
 import { dropAutomation, putAutomation, reloadAutomations, useSummaryCtx } from '../lib/automation-store.ts';
 import { formatDateTime, formatRelative } from '../lib/format.ts';
 import { useLang, useT } from '../lib/i18n.ts';
@@ -298,9 +299,12 @@ function useTraces(info: AutomationInfo): TraceState {
   return { list, error, selected: effective, select: setSelected, reload };
 }
 
+const VisualEditor = lazy(() => import('../components/automation/visual-editor.tsx'));
+
 function Traces({ state, config, ctx }: { state: TraceState; config: Record<string, unknown>; ctx: SummaryCtx }) {
   const t = useT();
   const lang = useLang();
+  const [view, setView] = useState<'timeline' | 'flow'>('timeline');
   const { list, error, selected, select } = state;
   if (error) return <ErrorNote>{error}</ErrorNote>;
   if (!list)
@@ -338,7 +342,45 @@ function Traces({ state, config, ctx }: { state: TraceState; config: Record<stri
           );
         })}
       </div>
-      <TraceTimeline trace={trace} config={config} ctx={ctx} />
+      <div className="flex min-w-0 flex-col gap-3">
+        <Segmented
+          size="sm"
+          label={t('vis.traceView')}
+          value={view}
+          onChange={setView}
+          className="self-start"
+          options={[
+            { value: 'timeline', label: t('vis.traceTimeline'), icon: 'list' },
+            { value: 'flow', label: t('vis.traceFlow'), icon: 'workflow' },
+          ]}
+        />
+        {view === 'timeline' ? (
+          <TraceTimeline trace={trace} config={config} ctx={ctx} />
+        ) : (
+          <Suspense
+            fallback={
+              <div className="grid place-items-center py-8 text-muted">
+                <Spinner />
+              </div>
+            }
+          >
+            <TraceFlow trace={trace} config={config} />
+          </Suspense>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The flow, read-only, with what this run did marked on each node (uses the current version of the automation). */
+function TraceFlow({ trace, config }: { trace: Trace; config: Record<string, unknown> }) {
+  const t = useT();
+  const flow = useMemo(() => editable(config), [config]);
+  const marks = useMemo(() => traceMarks(flow, trace), [flow, trace]);
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs text-muted">{t('vis.traceFlowHint')}</div>
+      <VisualEditor config={flow} readOnly compact marks={marks} />
     </div>
   );
 }

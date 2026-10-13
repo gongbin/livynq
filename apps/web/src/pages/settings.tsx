@@ -3,6 +3,7 @@ import { Icon, type IconName } from '../components/icons.tsx';
 import { LangSwitch, ThemeSwitch } from '../components/shell.tsx';
 import { Badge, Button, Card, PageHeader, SectionLabel } from '../components/ui.tsx';
 import { OpenWallButton, WallSettingsForm } from '../components/wall-settings-form.tsx';
+import { NotificationsCard } from '../components/notifications-card.tsx';
 import { signOut } from '../lib/api.ts';
 import { formatDuration } from '../lib/format.ts';
 import { useLang, useT, type MessageKey } from '../lib/i18n.ts';
@@ -62,6 +63,7 @@ export function SettingsPage() {
           </div>
           <WallSettingsForm />
         </Card>
+        <NotificationsCard />
         <Card className="flex flex-col gap-3">
           <SectionLabel>{t('settings.session')}</SectionLabel>
           <div className="flex items-center gap-3">

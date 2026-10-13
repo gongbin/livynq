@@ -7,6 +7,7 @@ import type {
   HomeKitBridgeInfo,
   Level,
   Placement,
+  PushInfo,
   Risk,
   Room,
   SystemInfo,
@@ -135,7 +136,7 @@ export type CommandResult = { ok: true } | PendingCommand;
 
 export type ConfirmationStatus = ConfirmationDTO['status'];
 
-export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'homeassistant' | 'virtual';
+export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'hue' | 'homeassistant' | 'virtual';
 export type OnboardingMethodId = PluginMethodId | 'mqtt';
 
 export interface PluginActionInfo {
@@ -227,6 +228,10 @@ export const api = {
   /** Validates a token without touching the stored session. */
   me: (token?: string) => request<{ token: TokenInfo }>('GET', '/auth/me', undefined, token ?? auth.get()),
   systemInfo: () => request<SystemInfo>('GET', '/system/info'),
+  pushInfo: () => request<PushInfo>('GET', '/push'),
+  pushSubscribe: (subscription: unknown, name: string) => request<{ endpoint: string }>('POST', '/push/subscriptions', { subscription, name }),
+  pushUnsubscribe: (endpoint: string) => request<{ ok: true }>('DELETE', '/push/subscriptions', { endpoint }),
+  pushTest: (endpoint?: string) => request<{ sent: number; failed: number }>('POST', '/push/test', endpoint ? { endpoint } : {}),
 
   devices: () => request<DeviceDTO[]>('GET', '/devices'),
   updateDevice: (id: string, patch: DevicePatch) => request<DeviceDTO>('PATCH', `/devices/${enc(id)}`, patch),

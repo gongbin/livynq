@@ -79,10 +79,13 @@ export function entityIndex(devices: Record<string, DeviceDTO>, t: Translate): M
   const out = new Map<string, EntityRef>();
   for (const d of Object.values(devices)) {
     const pairs = Object.entries(d.entities);
+    // The device's one controllable entity keeps the plain device name ("Front Door Lock", not "… · front_door_lock").
+    const primary = pairs.filter(([, id]) => !id.startsWith('sensor.'));
     for (const [epId, entityId] of pairs) {
       const ep = d.endpoints.find((e) => String(e.id) === epId);
       const key = ep ? readingKey[ep.deviceType] : undefined;
-      const name = pairs.length > 1 ? `${d.name} · ${key ? t(key) : entityId.split('.').pop()}` : d.name;
+      const suffix = key ? t(key) : ep?.name ? ep.name : primary.length === 1 && primary[0]![1] === entityId ? null : entityId.split('.').pop();
+      const name = pairs.length > 1 && suffix ? `${d.name} · ${suffix}` : d.name;
       out.set(entityId, { name, kind: deviceKind(d), deviceId: d.id, roomName: d.roomName });
     }
   }
@@ -110,6 +113,9 @@ function stateLabel(ctx: SummaryCtx, ids: unknown, value: unknown): string {
   const kind = ctx.entities.get(first)?.kind;
   const on = v === 'on' || v === 'true';
   const off = v === 'off' || v === 'false';
+  const named: Record<string, MessageKey> = { locked: 'vis.st.locked', unlocked: 'vis.st.unlocked', jammed: 'vis.st.jammed', open: 'vis.st.open', closed: 'vis.st.closed', opening: 'vis.st.opening', closing: 'vis.st.closing' };
+  if (named[v]) return ctx.t(named[v]);
+  if (domain === 'climate' && ['heat', 'cool', 'heat_cool', 'auto', 'dry', 'fan_only'].includes(v)) return ctx.t(`vis.hvac.${v}` as MessageKey);
   if (!on && !off) return v;
   if (domain === 'binary_sensor') {
     if (kind === 'contact') return ctx.t(on ? 'state.open' : 'state.closed');
@@ -336,6 +342,11 @@ export function describeAction(ctx: SummaryCtx, raw: unknown): string {
   const name = raw.action ?? raw.service;
   if (typeof name === 'string') {
     const [domain = '', service = ''] = name.split('.');
+    if (domain === 'notify') {
+      const d = isObj(raw.data) ? raw.data : {};
+      const m = typeof d.message === 'string' && d.message.trim() ? d.message : '…';
+      return typeof d.title === 'string' && d.title.trim() ? t('sum.a.notifyTitled', { title: d.title, m }) : t('sum.a.notify', { m });
+    }
     const x = targetText(ctx, domain, raw);
     if (domain === 'automation') {
       const key = service === 'turn_on' ? 'sum.a.enableAuto' : service === 'turn_off' ? 'sum.a.disableAuto' : 'sum.a.triggerAuto';
@@ -344,6 +355,31 @@ export function describeAction(ctx: SummaryCtx, raw: unknown): string {
     if (service === 'turn_on') return t('sum.a.on', { x }) + serviceData(ctx, raw.data);
     if (service === 'turn_off') return t('sum.a.off', { x }) + serviceData(ctx, raw.data);
     if (service === 'toggle') return t('sum.a.toggle', { x });
+    const d = isObj(raw.data) ? raw.data : {};
+    switch (service) {
+      case 'open_cover':
+        return t('sum.a.open', { x });
+      case 'close_cover':
+        return t('sum.a.close', { x });
+      case 'stop_cover':
+        return t('sum.a.stopCover', { x });
+      case 'set_cover_position':
+        return t('sum.a.position', { x, n: str(d.position) || '?' });
+      case 'set_cover_tilt_position':
+        return t('sum.a.position', { x, n: str(d.tilt_position) || '?' });
+      case 'lock':
+        return t('sum.a.lock', { x });
+      case 'unlock':
+        return t('sum.a.unlock', { x });
+      case 'set_temperature':
+        return t('sum.a.temperature', { x, n: str(d.temperature ?? `${str(d.target_temp_low)}–${str(d.target_temp_high)}`) }) + (d.hvac_mode !== undefined ? ` · ${t(`vis.hvac.${str(d.hvac_mode)}` as MessageKey)}` : '');
+      case 'set_hvac_mode':
+        return t('sum.a.hvacMode', { x, m: d.hvac_mode !== undefined ? t(`vis.hvac.${str(d.hvac_mode)}` as MessageKey) : '?' });
+      case 'set_percentage':
+        return t('sum.a.speed', { x, n: str(d.percentage) || '?' });
+      case 'set_preset_mode':
+        return t('sum.a.preset', { x, m: str(d.preset_mode) || '?' });
+    }
     return t('sum.a.call', { a: name, x });
   }
   if (raw.delay !== undefined) return t('sum.a.delay', { d: dur(ctx, raw.delay) });

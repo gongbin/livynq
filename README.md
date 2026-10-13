@@ -110,6 +110,27 @@ pnpm livynq automations traces hallway_night_light   # 每次运行的触发原�
 
 日出日落需要在 `livynq.yaml` 中设置 `location: { latitude, longitude }`。暂不支持 Jinja 模板。
 
+### 手机通知
+
+自动化里用 `notify.notify`（HA 的 `notify.mobile_app_xxx` 写法也能用）发消息：
+
+```yaml
+    - action: notify.notify
+      data: { title: 前门, message: 门开了, data: { url: "/#/devices" } }
+```
+
+消息会推送到在“设置 → 通知”里开启了通知的手机和电脑（Web Push，不经过 Livynq 云）；Agent 请求审批时也会推送给管理员。脚本可以调用 `POST /api/v1/notify`。
+
+浏览器只在 https 下允许推送和把网页添加到主屏幕（iPhone 需要先“添加到主屏幕”）。给 Livynq 配一张证书，例如用 Tailscale 的 `tailscale cert`，或自己域名的证书：
+
+```yaml
+# livynq.yaml
+server:
+  https: { port: 8582, cert: certs/home.crt, key: certs/home.key }   # 相对数据目录
+```
+
+原来的 http 端口继续保留给 CLI 和局域网访问；`livynq doctor` 会检查证书有效期。
+
 ## 从 Home Assistant 迁移
 
 ```bash
@@ -142,7 +163,14 @@ plugins:
     config:
       serialPort: /dev/serial/by-id/usb-…
       takeOverZigbee2mqtt: /opt/zigbee2mqtt/data   # 可选：接管现有网络
+  - module: "@livynq/plugin-zwave"          # 直接驱动 Z-Wave 控制棒（S2、SmartStart）
+    config: { port: /dev/serial/by-id/usb-… }
+  - module: "@livynq/plugin-shelly"         # Shelly 二代及以上，本地 RPC，mDNS 自动发现
+  - module: "@livynq/plugin-hue"            # Philips Hue 桥（本地 CLIP v2 + 事件流）
+  - module: "@livynq/plugin-matter"         # Matter 控制器（配对码 / 二维码）
 ```
+
+以上插件都可以在网页的“添加设备”里一键启用，不必手动编辑配置。
 
 每个插件运行在独立进程中，崩溃会自动重启，不影响其他设备与 HomeKit 桥。`livynq plugin list` 查看状态。
 
@@ -192,7 +220,7 @@ packages/agent         MCP 工具与 Agent 友好的设备摘要
 packages/automation    自动化引擎（HA 结构）
 packages/importer-homeassistant  HA 导入器
 packages/sdk, plugin-host        插件 SDK 与进程隔离宿主
-plugins/virtual, esphome, zigbee 官方插件
+plugins/                官方插件：virtual、esphome、zigbee、zwave、matter、shelly、hue、homeassistant
 installers/            安装脚本
 ```
 

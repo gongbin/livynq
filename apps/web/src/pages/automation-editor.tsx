@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
 import { Icon, type IconName } from '../components/icons.tsx';
 import { toast } from '../components/toast.tsx';
-import { Button, Card, EmptyState, ErrorNote, PageHeader, SectionLabel, Spinner, copyText, cx } from '../components/ui.tsx';
+import { Button, Card, EmptyState, ErrorNote, PageHeader, SectionLabel, Segmented, Spinner, copyText, cx } from '../components/ui.tsx';
 import { ApiError, api, errorMessage, type AutomationInfo, type ValidationResult } from '../lib/api.ts';
 import { parseYaml, templateConfig, toYaml, type TemplateId, type YamlResult } from '../lib/automation.ts';
 import { putAutomation, reloadAutomations, useAutomations, useSummaryCtx } from '../lib/automation-store.ts';
+import { editable, type Obj } from '../lib/automation-flow.ts';
 import { deviceKind, type DeviceKind } from '../lib/devices.ts';
 import { useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
@@ -15,7 +16,23 @@ import { CheckRow } from './automations.tsx';
 
 const TEMPLATE_IDS: TemplateId[] = ['blank', 'motion', 'sunset', 'webhook'];
 
-/** YAML editor for a new (`id` undefined) or existing automation, with live server-side validation. */
+const VisualEditor = lazy(() => import('../components/automation/visual-editor.tsx'));
+
+type EditorTab = 'visual' | 'yaml';
+const TAB_KEY = 'livynq.automationEditorTab';
+
+function savedTab(): EditorTab {
+  try {
+    return localStorage.getItem(TAB_KEY) === 'yaml' ? 'yaml' : 'visual';
+  } catch {
+    return 'visual';
+  }
+}
+
+/**
+ * Editor for a new (`id` undefined) or existing automation: a visual flow canvas and the YAML,
+ * both editing the same text, with live server-side validation.
+ */
 export function AutomationEditor({ id }: { id?: string }) {
   const t = useT();
   const canAdmin = useCan('admin');
@@ -30,6 +47,15 @@ export function AutomationEditor({ id }: { id?: string }) {
   const [runAfter, setRunAfter] = useState(false);
   const [startDisabled, setStartDisabled] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const [tab, setTabState] = useState<EditorTab>(savedTab);
+  const setTab = (next: EditorTab) => {
+    setTabState(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {
+      // private mode: the choice just isn't remembered
+    }
+  };
 
   // Initial text: the stored config (edit) or a template filled with this home's entities (new).
   useEffect(() => {
@@ -53,6 +79,10 @@ export function AutomationEditor({ id }: { id?: string }) {
   }, [list]);
 
   const { parsed, validation, validating } = useValidation(text, id);
+  // The canvas needs the config right away (validation parses with a delay).
+  const now = useMemo(() => (text === null ? null : parseYaml(text)), [text]);
+  const visualConfig = useMemo(() => (now?.ok ? editable(now.value) : null), [now]);
+  const onVisualChange = (next: Obj) => setText(toYaml(next, Boolean(id)));
   const readOnly = !canAdmin;
   const back = () => go(id ? `/automations/${encodeURIComponent(id)}` : '/automations');
 
@@ -81,6 +111,20 @@ export function AutomationEditor({ id }: { id?: string }) {
       });
   };
 
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => {
+    if (tab !== 'visual') return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveRef.current();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [tab]);
+
   const title = id ? (readOnly ? t('auto.editor.viewTitle', { name: info?.alias ?? id }) : t('auto.editor.editTitle', { name: info?.alias ?? id })) : t('auto.editor.newTitle');
 
   if (loadError) {
@@ -95,6 +139,28 @@ export function AutomationEditor({ id }: { id?: string }) {
       </>
     );
   }
+
+  const footer = (
+    <>
+      <ValidationPanel parsed={parsed} validation={validation} validating={validating} />
+      {saveError && <ErrorNote>{saveError}</ErrorNote>}
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-line pt-3.5">
+          {canControl && (
+            <CheckRow checked={runAfter} onChange={setRunAfter} disabled={startDisabled}>
+              {t('auto.editor.runAfter')}
+            </CheckRow>
+          )}
+          {!id && (
+            <CheckRow checked={startDisabled} onChange={(v) => (setStartDisabled(v), v && setRunAfter(false))}>
+              {t('auto.editor.startDisabled')}
+            </CheckRow>
+          )}
+          {tab === 'yaml' && <span className="ml-auto hidden text-xs text-muted md:inline">{t('auto.editor.shortcut')}</span>}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <>
@@ -119,49 +185,75 @@ export function AutomationEditor({ id }: { id?: string }) {
           {t('auto.editor.readOnly')}
         </div>
       )}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <Card className="flex min-w-0 flex-col gap-3.5 p-3! md:p-4!">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Segmented
+          label={t('vis.tabs')}
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'visual', label: t('vis.tab.visual'), icon: 'workflow' },
+            { value: 'yaml', label: t('vis.tab.yaml'), icon: 'code' },
+          ]}
+          className="w-full sm:w-auto"
+        />
+        {tab === 'visual' && <span className="hidden text-xs text-muted sm:inline">{t('vis.tabHint')}</span>}
+      </div>
+      {tab === 'visual' ? (
+        <>
           {text === null ? (
-            <div className="grid min-h-[360px] place-items-center text-muted">
+            <Card className="grid min-h-[360px] place-items-center text-muted">
               <Spinner size={20} />
-            </div>
+            </Card>
+          ) : visualConfig ? (
+            <Suspense
+              fallback={
+                <Card className="grid min-h-[360px] place-items-center text-muted">
+                  <Spinner size={20} />
+                </Card>
+              }
+            >
+              <VisualEditor config={visualConfig} onChange={onVisualChange} errors={parsed?.ok && validation && !validation.ok ? validation.errors : []} readOnly={readOnly} settings={{ isNew: !id }} />
+            </Suspense>
           ) : (
-            <CodeArea
-              ref={textarea}
-              value={text}
-              onChange={setText}
-              readOnly={readOnly}
-              label={t('auto.editor.label')}
-              errorLine={parsed && !parsed.ok ? parsed.line : undefined}
-              onSave={save}
-            />
+            <Card>
+              <EmptyState icon="code" title={t('vis.cannotParse')} body={now && !now.ok ? `${now.line !== undefined ? `${t('auto.editor.line', { n: now.line })} · ` : ''}${now.message}` : undefined}>
+                <Button icon="code" onClick={() => setTab('yaml')}>
+                  {t('vis.fixInYaml')}
+                </Button>
+              </EmptyState>
+            </Card>
           )}
-          <ValidationPanel parsed={parsed} validation={validation} validating={validating} />
-          {saveError && <ErrorNote>{saveError}</ErrorNote>}
-          {!readOnly && (
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-line pt-3.5">
-              {canControl && (
-                <CheckRow checked={runAfter} onChange={setRunAfter} disabled={startDisabled}>
-                  {t('auto.editor.runAfter')}
-                </CheckRow>
-              )}
-              {!id && (
-                <CheckRow checked={startDisabled} onChange={(v) => (setStartDisabled(v), v && setRunAfter(false))}>
-                  {t('auto.editor.startDisabled')}
-                </CheckRow>
-              )}
-              <span className="ml-auto hidden text-xs text-muted md:inline">{t('auto.editor.shortcut')}</span>
+          <Card className="flex min-w-0 flex-col gap-3.5 p-3! md:p-4!">{footer}</Card>
+        </>
+      ) : (
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <Card className="flex min-w-0 flex-col gap-3.5 p-3! md:p-4!">
+            {text === null ? (
+              <div className="grid min-h-[360px] place-items-center text-muted">
+                <Spinner size={20} />
+              </div>
+            ) : (
+              <CodeArea
+                ref={textarea}
+                value={text}
+                onChange={setText}
+                readOnly={readOnly}
+                label={t('auto.editor.label')}
+                errorLine={parsed && !parsed.ok ? parsed.line : undefined}
+                onSave={save}
+              />
+            )}
+            {footer}
+          </Card>
+          <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-8">
+            <EntityPanel devicesKnown={devicesKnown} />
+            <div className="flex items-start gap-2.5 px-1 text-xs leading-relaxed text-pretty text-muted">
+              <Icon name="sparkles" size={15} className="mt-px shrink-0" />
+              {t('auto.editor.help')}
             </div>
-          )}
-        </Card>
-        <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-8">
-          <EntityPanel devicesKnown={devicesKnown} />
-          <div className="flex items-start gap-2.5 px-1 text-xs leading-relaxed text-pretty text-muted">
-            <Icon name="sparkles" size={15} className="mt-px shrink-0" />
-            {t('auto.editor.help')}
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

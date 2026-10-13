@@ -3,11 +3,11 @@ import { AddDeviceHost } from './components/add-device.tsx';
 import { ApprovalBanner } from './components/approvals.tsx';
 import { DialogHost } from './components/dialog.tsx';
 import { Shell } from './components/shell.tsx';
-import { Toaster } from './components/toast.tsx';
+import { Toaster, toast } from './components/toast.tsx';
 import { Button, EmptyState } from './components/ui.tsx';
 import { auth } from './lib/api.ts';
 import { useT } from './lib/i18n.ts';
-import { connectLive, disconnectLive } from './lib/live.ts';
+import { connectLive, disconnectLive, onNotification } from './lib/live.ts';
 import { useRoute, type Route } from './lib/router.ts';
 import { clearSession, loadSession } from './lib/session.ts';
 import { useStore } from './lib/store.ts';
@@ -63,6 +63,9 @@ function Authed() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [route]);
+
+  // Automation messages while the page is open (phones with push get them from the OS too).
+  useEffect(() => onNotification((n) => toast(n.title ? `${n.title} — ${n.message}` : n.message, 'info')), []);
 
   if (route === 'wall')
     return (
