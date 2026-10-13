@@ -29,6 +29,9 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
                                 Actions: ${actions.filter((a) => a !== 'raw').join(', ')}
   call <target> <capability>.<command> [--params JSON]
   rooms list
+  automations list | get <id> | traces <id> | trigger <id> | enable <id> | disable <id> | delete <id>
+  automations apply <file.yaml> [--dry-run] [--disabled]
+                                Create or update from Home Assistant style YAML
   tokens list | tokens create <name> [--scope read|control|admin] | tokens revoke <id>
   mcp                           MCP server over stdio (for Claude Desktop, Cursor, ...)
 
@@ -58,6 +61,8 @@ const { values: flags, positionals } = parseArgs({
     room: { type: 'string' },
     domain: { type: 'string' },
     q: { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    disabled: { type: 'boolean' },
     scope: { type: 'string' },
     params: { type: 'string' },
     brightness: { type: 'string' },
@@ -158,6 +163,87 @@ async function run(): Promise<void> {
       const endpointId = endpointForTarget(device, target, body.capability);
       await c.command(device.id, endpointId, body);
       return print(`ok: ${device.name} ← ${body.capability}.${body.command}`, { ok: true, deviceId: device.id, endpointId, ...body });
+    }
+    case 'automations': {
+      const c = client();
+      const id = rest[0];
+      const path = (suffix = '') => `/api/v1/automations/${encodeURIComponent(id ?? '')}${suffix}`;
+      const need = () => {
+        if (!id) throw new ApiError(400, 'INVALID_PARAMS', `Usage: livynq automations ${sub} <id>`);
+      };
+      switch (sub ?? 'list') {
+        case 'list': {
+          const list = await c.automations();
+          return print(
+            table(list.map((a) => ({ id: a.id, alias: a.alias, enabled: a.enabled ? 'on' : 'off', valid: a.valid ? 'ok' : 'INVALID', last: a.lastTriggered ? new Date(a.lastTriggered).toLocaleString() : '', by: a.createdBy }))),
+            list,
+          );
+        }
+        case 'get': {
+          need();
+          const info = await c.request<Record<string, unknown>>('GET', path());
+          return print(JSON.stringify(info, null, 2), info);
+        }
+        case 'traces': {
+          need();
+          const traces = await c.automationTraces(id!);
+          return print(
+            table(traces.map((t) => ({ run: t.runId.slice(0, 8), started: new Date(t.startedAt).toLocaleString(), state: t.state, trigger: t.trigger.description, note: t.error ?? t.stopReason ?? '' }))),
+            traces,
+          );
+        }
+        case 'trigger': {
+          need();
+          const r = await c.request<{ runId: string | null }>('POST', path('/trigger'), {});
+          return print(r.runId ? `started run ${r.runId}` : 'not started (mode refused or queued)', r);
+        }
+        case 'enable':
+        case 'disable': {
+          need();
+          const r = await c.request<Record<string, unknown>>('POST', path(`/${sub}`), {});
+          return print(`${id}: ${sub}d`, r);
+        }
+        case 'delete': {
+          need();
+          await c.request('DELETE', path());
+          return print(`${id}: deleted`, { ok: true });
+        }
+        case 'apply': {
+          const file = id;
+          if (!file) throw new ApiError(400, 'INVALID_PARAMS', 'Usage: livynq automations apply <file.yaml>');
+          const { readFileSync } = await import('node:fs');
+          const { parse } = await import('yaml');
+          const doc = parse(readFileSync(file, 'utf8')) as unknown;
+          const configs = (Array.isArray(doc) ? doc : [doc]) as Record<string, unknown>[];
+          const results: Record<string, unknown>[] = [];
+          for (const config of configs) {
+            const v = await c.request<{ ok: boolean; errors: string[]; automation?: { id: string } }>('POST', '/api/v1/automations/validate', config);
+            const label = v.automation?.id ?? String(config.alias ?? config.id ?? '?');
+            if (!v.ok) {
+              results.push({ id: label, ok: false, errors: v.errors });
+              continue;
+            }
+            if (flags['dry-run']) {
+              results.push({ id: label, ok: true, dryRun: true });
+              continue;
+            }
+            const existing = (await c.automations()).some((a) => a.id === label);
+            const saved = existing
+              ? await c.request<{ id: string; version: number }>('PUT', `/api/v1/automations/${encodeURIComponent(label)}`, config)
+              : await c.request<{ id: string; version: number }>('POST', `/api/v1/automations${flags.disabled ? '?enabled=false' : ''}`, config);
+            results.push({ id: saved.id, ok: true, version: saved.version, action: existing ? 'updated' : 'created' });
+          }
+          const failed = results.filter((r) => !r.ok);
+          print(
+            results.map((r) => (r.ok ? `✓ ${r.id} ${r.dryRun ? '(valid)' : `${r.action} v${r.version}`}` : `✗ ${r.id}\n    ${(r.errors as string[]).join('\n    ')}`)).join('\n'),
+            results,
+          );
+          if (failed.length) process.exitCode = 1;
+          return;
+        }
+        default:
+          throw new ApiError(400, 'INVALID_PARAMS', `Unknown subcommand automations ${sub}`);
+      }
     }
     case 'rooms': {
       const rooms = await client().rooms();

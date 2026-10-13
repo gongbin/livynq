@@ -5,6 +5,7 @@ import pino from 'pino';
 import { DemoAdapter, Home } from '@livynq/core';
 import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
+import { AutomationEngine } from '@livynq/automation';
 import type { LivynqConfig } from './config.ts';
 import { createServer } from './server.ts';
 import { VERSION } from './version.ts';
@@ -45,6 +46,9 @@ export async function startLivynq(config: LivynqConfig): Promise<RunningInstance
       }),
     );
   }
+
+  home.useExtension(new AutomationEngine({ location: config.location }));
+  if (!config.location) logger.info('no location configured: sun triggers/conditions are inactive (set location.latitude/longitude in livynq.yaml)');
 
   const app = await createServer(home, { logger });
   await home.start();

@@ -81,6 +81,33 @@ const readTools: Tool[] = [
   },
 ];
 
+readTools.push(
+  {
+    name: 'list_automations',
+    description: 'List automations with enabled state, validity, last trigger time and who created them.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, title: 'List automations' },
+  },
+  {
+    name: 'get_automation',
+    description: 'One automation: its Home Assistant style config and its most recent run traces (trigger, condition results, steps, errors). Use it to explain or debug behaviour.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, traces: { type: 'number', minimum: 0, maximum: 20, default: 3 } }, required: ['id'] },
+    annotations: { readOnlyHint: true, title: 'Get automation' },
+  },
+);
+
+const proposeTool: Tool = {
+  name: 'propose_automation',
+  description:
+    'Save a NEW automation as a disabled draft for the user to review and enable. Use Home Assistant automation syntax: ' +
+    '{ alias, description?, mode?, triggers: [{trigger: state|numeric_state|time|time_pattern|sun|homeassistant|webhook, ...}], ' +
+    'conditions?: [{condition: state|numeric_state|time|sun|and|or|not|trigger, ...}], ' +
+    'actions: [{action: light.turn_on|light.turn_off|light.toggle|switch.*|homeassistant.*|automation.*, target: {entity_id|area_id}, data?} | {delay} | {wait_for_trigger} | {choose} | {if/then/else} | {repeat} | {parallel} | {stop}] }. ' +
+    'Templates are not supported. Invalid configs return precise errors to fix. Existing automations are never overwritten.',
+  inputSchema: { type: 'object', properties: { automation: { type: 'object', description: 'The automation config' } }, required: ['automation'] },
+  annotations: { readOnlyHint: false, destructiveHint: false, title: 'Propose automation' },
+};
+
 const controlTool: Tool = {
   name: 'control_device',
   description:
@@ -118,7 +145,7 @@ export function createMcpServer(options: McpOptions): Server {
     return device;
   };
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: canControl ? [...readTools, controlTool] : readTools }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: canControl ? [...readTools, controlTool, proposeTool] : readTools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
@@ -171,6 +198,41 @@ export function createMcpServer(options: McpOptions): Server {
             throw new ToolError(err.message);
           });
           return json({ ok: true, device: device.name, endpointId, sent: body, note: 'State updates once the device confirms; call get_device to verify.' });
+        }
+        case 'list_automations':
+          return json(
+            (await api.automations()).map((a) => ({
+              id: a.id,
+              alias: a.alias,
+              enabled: a.enabled,
+              valid: a.valid,
+              ...(a.valid ? {} : { errors: a.errors }),
+              lastTriggered: a.lastTriggered ? new Date(a.lastTriggered).toISOString() : null,
+              createdBy: a.createdBy,
+            })),
+          );
+        case 'get_automation': {
+          const id = requireStr(args.id, 'id');
+          const info = (await api.automations()).find((a) => a.id === id);
+          if (!info) throw new ToolError(`Automation not found: ${id}`);
+          const count = Math.min(20, Math.max(0, Number(args.traces ?? 3)));
+          const traces = (await api.automationTraces(id)).slice(0, count).map((t) => ({
+            started: new Date(t.startedAt).toISOString(),
+            state: t.state,
+            trigger: t.trigger.description,
+            ...(t.stopReason ? { stopReason: t.stopReason } : {}),
+            ...(t.error ? { error: t.error } : {}),
+            conditions: t.conditions,
+            steps: t.steps.map((s) => ({ path: s.path, type: s.type, ...(s.error ? { error: s.error } : {}) })),
+          }));
+          return json({ id: info.id, alias: info.alias, enabled: info.enabled, valid: info.valid, errors: info.errors, config: info.config, traces });
+        }
+        case 'propose_automation': {
+          if (!canControl) throw new ToolError('This token is read-only; proposing automations needs "control" scope.');
+          const config = args.automation;
+          if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ToolError('automation must be an object');
+          const info = await api.proposeAutomation(config as Record<string, unknown>, `agent:${options.clientName}`);
+          return json({ ok: true, id: info.id, enabled: false, note: 'Saved as a disabled draft. Ask the user to review and enable it in Livynq.' });
         }
         default:
           throw new ToolError(`Unknown tool ${request.params.name}`);

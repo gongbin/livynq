@@ -11,7 +11,7 @@ export interface Adapter {
   stop(): Promise<void>;
 }
 
-/** Ecosystem exporter: exposes Livynq devices to HomeKit, Matter, MQTT... */
+/** Ecosystem exporter (HomeKit, Matter, MQTT...) or internal extension (automation engine...). */
 export interface Exporter {
   readonly id: string;
   start(home: Home): Promise<void>;

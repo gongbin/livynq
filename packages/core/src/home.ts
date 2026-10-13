@@ -56,6 +56,7 @@ export class Home {
 
   readonly #adapters = new Map<string, Adapter>();
   readonly #exporters = new Map<string, Exporter>();
+  readonly #extensions = new Map<string, Exporter>();
   readonly #handlers = new Map<string, { adapter: string; handlers: Record<string, CommandHandler> }>();
   readonly #commandTimeoutMs: number;
   #pruneTimer: NodeJS.Timeout | undefined;
@@ -87,6 +88,17 @@ export class Home {
     return this;
   }
 
+  /** Extensions start after adapters (their first state reports are already in) and stop first. */
+  useExtension(extension: Exporter): this {
+    if (this.#extensions.has(extension.id)) throw new Error(`Extension ${extension.id} already registered`);
+    this.#extensions.set(extension.id, extension);
+    return this;
+  }
+
+  extension<T extends Exporter>(id: string): T | undefined {
+    return this.#extensions.get(id) as T | undefined;
+  }
+
   adapters(): string[] {
     return [...this.#adapters.keys()];
   }
@@ -105,6 +117,9 @@ export class Home {
     for (const adapter of this.#adapters.values()) {
       await this.#guard(`adapter ${adapter.id}`, () => adapter.start(this.#contextFor(adapter.id)));
     }
+    for (const extension of this.#extensions.values()) {
+      await this.#guard(`extension ${extension.id}`, () => extension.start(this));
+    }
     this.registry.pruneHistory();
     this.#pruneTimer = setInterval(() => this.registry.pruneHistory(), 6 * 3600 * 1000).unref();
   }
@@ -113,6 +128,7 @@ export class Home {
     if (!this.#running) return;
     this.#running = false;
     clearInterval(this.#pruneTimer);
+    for (const extension of this.#extensions.values()) await this.#guard(`stop extension ${extension.id}`, () => extension.stop());
     for (const adapter of this.#adapters.values()) await this.#guard(`stop adapter ${adapter.id}`, () => adapter.stop());
     for (const exporter of this.#exporters.values()) await this.#guard(`stop exporter ${exporter.id}`, () => exporter.stop());
     this.storage.close();

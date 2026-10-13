@@ -2,18 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import pino from 'pino';
 import { DemoAdapter, Home } from '@livynq/core';
+import { AutomationEngine } from '@livynq/automation';
 import { createServer } from '../src/server.ts';
 
 async function setup() {
   const home = new Home({ dataDir: ':memory:' });
-  home.useAdapter(new DemoAdapter({ simulateSensors: false }));
+  home.useAdapter(new DemoAdapter({ simulateSensors: false })).useExtension(new AutomationEngine());
   const app = await createServer(home, { logger: pino({ level: 'silent' }), webRoot: '/nonexistent' });
   await home.start();
   const admin = home.tokens.create('admin', 'admin').token;
   const reader = home.tokens.create('reader', 'read').token;
+  const control = home.tokens.create('bot', 'control').token;
   const req = (method: string, url: string, token?: string, payload?: unknown) =>
     app.inject({ method: method as 'GET', url, payload: payload as object, headers: token ? { authorization: `Bearer ${token}` } : {} });
-  return { home, app, admin, reader, req };
+  return { home, app, admin, reader, control, req };
 }
 
 test('auth and scopes', async () => {
@@ -76,6 +78,47 @@ test('MCP over Streamable HTTP honours the token scope', async () => {
   const tools = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
   assert.ok(!tools.json().result.tools.some((t: { name: string }) => t.name === 'control_device'));
   assert.equal((await req('POST', '/mcp')).statusCode, 401);
+  await app.close();
+  await home.stop();
+});
+
+test('automations: YAML create, validate, scopes, proposals, trigger, traces, webhook', async () => {
+  const { app, home, admin, reader, control, req } = await setup();
+  const yaml = [
+    'alias: Coffee by webhook',
+    'triggers:',
+    '  - trigger: webhook',
+    '    webhook_id: morning-coffee-42',
+    'actions:',
+    '  - action: switch.turn_on',
+    '    target: { entity_id: switch.coffee_machine }',
+  ].join('\n');
+  const invalid = (await req('POST', '/api/v1/automations/validate', reader, { alias: 'x', triggers: [], actions: [{ delay: 'later' }] })).json();
+  assert.equal(invalid.ok, false);
+  assert.equal((await req('POST', '/api/v1/automations', control, { yaml })).statusCode, 403, 'creating needs admin');
+  const created = await req('POST', '/api/v1/automations', admin, { yaml });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().id, 'coffee_by_webhook');
+  assert.equal((await req('POST', '/api/v1/automations', admin, { yaml })).statusCode, 409);
+
+  const proposal = await req('POST', '/api/v1/automations/proposals', control, { alias: 'Draft', triggers: [{ trigger: 'time', at: '07:00' }], actions: [{ delay: 1 }] });
+  assert.equal(proposal.json().enabled, false);
+  assert.equal(proposal.json().createdBy, 'proposal:bot');
+
+  const hook = await app.inject({ method: 'POST', url: '/api/webhook/morning-coffee-42', payload: { hello: 1 } });
+  assert.equal(hook.statusCode, 200);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/webhook/unknown-id-0000' })).statusCode, 200, 'unknown ids look the same');
+  const engine = home.extension<AutomationEngine>('automations')!;
+  for (let i = 0; i < 100 && engine.traces('coffee_by_webhook')[0]?.state !== 'finished'; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(home.registry.getAttribute('demo:coffee-plug', 1, 'onOff', 'onOff'), true);
+  const traces = (await req('GET', '/api/v1/automations/coffee_by_webhook/traces', reader)).json();
+  assert.equal(traces[0].trigger.vars.json.hello, 1);
+
+  const trig = (await req('POST', '/api/v1/automations/coffee_by_webhook/trigger', control, {})).json();
+  assert.equal(trig.started, true);
+  assert.equal((await req('POST', '/api/v1/automations/coffee_by_webhook/disable', admin, {})).json().enabled, false);
+  assert.equal((await req('DELETE', '/api/v1/automations/coffee_by_webhook', admin)).statusCode, 204);
+  assert.equal((await req('GET', '/api/v1/automations/coffee_by_webhook', admin)).statusCode, 404);
   await app.close();
   await home.stop();
 });

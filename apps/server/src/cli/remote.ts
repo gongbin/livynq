@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { CommandBody, DeviceDTO, Room, SystemInfo } from '@livynq/model';
 import type { HistoryPoint } from '@livynq/core';
 import type { DeviceFilter, HistoryQuery, HomeApi } from '@livynq/agent';
+import type { AutomationInfo, Trace } from '@livynq/automation';
 
 export class ApiError extends Error {
   readonly code: string;
@@ -81,5 +82,17 @@ export class RemoteClient implements HomeApi {
   async command(deviceId: string, endpointId: number, body: CommandBody) {
     // The server records the token name as the source.
     await this.request('POST', `/api/v1/devices/${encodeURIComponent(deviceId)}/endpoints/${endpointId}/commands`, body);
+  }
+
+  automations() {
+    return this.request<AutomationInfo[]>('GET', '/api/v1/automations');
+  }
+
+  automationTraces(id: string) {
+    return this.request<Trace[]>('GET', `/api/v1/automations/${encodeURIComponent(id)}/traces`);
+  }
+
+  proposeAutomation(config: Record<string, unknown>) {
+    return this.request<AutomationInfo>('POST', '/api/v1/automations/proposals', config);
   }
 }

@@ -1,5 +1,6 @@
 import type { CommandBody, DeviceDTO, Room, SystemInfo } from '@livynq/model';
-import { toDeviceDTO, type Home, type HistoryPoint } from '@livynq/core';
+import { LivynqError, toDeviceDTO, type Home, type HistoryPoint } from '@livynq/core';
+import type { AutomationEngine, AutomationInfo, Trace } from '@livynq/automation';
 
 export interface DeviceFilter {
   q?: string;
@@ -26,6 +27,10 @@ export interface HomeApi {
   device(ref: string): Promise<DeviceDTO>;
   history(ref: string, query: HistoryQuery): Promise<HistoryPoint[]>;
   command(deviceId: string, endpointId: number, body: CommandBody, source: string): Promise<void>;
+  automations(): Promise<AutomationInfo[]>;
+  automationTraces(id: string): Promise<Trace[]>;
+  /** Stores a disabled draft; never overwrites an existing automation. */
+  proposeAutomation(config: Record<string, unknown>, source: string): Promise<AutomationInfo>;
 }
 
 export function createLocalHomeApi(home: Home, version = '0.0.0'): HomeApi {
@@ -57,5 +62,20 @@ export function createLocalHomeApi(home: Home, version = '0.0.0'): HomeApi {
     async command(deviceId, endpointId, body, source) {
       await home.command({ deviceId, endpointId, ...body }, source);
     },
+    async automations() {
+      return engine().list();
+    },
+    async automationTraces(id) {
+      return engine().traces(id);
+    },
+    async proposeAutomation(config, source) {
+      return engine().save(config, source, { onlyCreate: true, enabled: false });
+    },
   };
+
+  function engine(): AutomationEngine {
+    const e = home.extension<AutomationEngine>('automations');
+    if (!e) throw new LivynqError('NOT_SUPPORTED', 'Automations are disabled');
+    return e;
+  }
 }

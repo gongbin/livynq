@@ -69,6 +69,33 @@ const migrations: string[] = [
   );
   CREATE INDEX command_log_ts ON command_log (ts);
   `,
+  `
+  CREATE TABLE automations (
+    id TEXT PRIMARY KEY,
+    config TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_triggered INTEGER
+  );
+  CREATE TABLE automation_versions (
+    automation_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    config TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (automation_id, version)
+  );
+  CREATE TABLE automation_traces (
+    run_id TEXT PRIMARY KEY,
+    automation_id TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    trace TEXT NOT NULL
+  );
+  CREATE INDEX automation_traces_lookup ON automation_traces (automation_id, started_at);
+  `,
 ];
 
 export class Storage {

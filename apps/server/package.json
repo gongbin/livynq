@@ -15,6 +15,7 @@
     "@fastify/websocket": "^11.3.4",
     "@livynq/adapter-mqtt": "workspace:*",
     "@livynq/agent": "workspace:*",
+    "@livynq/automation": "workspace:*",
     "@livynq/core": "workspace:*",
     "@livynq/exporter-homekit": "workspace:*",
     "@livynq/model": "workspace:*",

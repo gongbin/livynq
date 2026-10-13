@@ -9,6 +9,7 @@ import { Home, LivynqError, scopeAllows, toDeviceDTO, type TokenInfo, type Token
 import type { Availability, CommandBody, Device, ExposurePolicy, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
+import { registerAutomationRoutes } from './routes/automations.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -149,6 +150,8 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     home.tokens.revoke((req.params as { id: string }).id);
     return reply.status(204).send();
   });
+
+  registerAutomationRoutes(app, home, { read, control, admin, source });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {

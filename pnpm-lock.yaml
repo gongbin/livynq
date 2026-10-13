@@ -187,6 +187,9 @@ importers:
       '@livynq/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@livynq/automation':
+        specifier: workspace:*
+        version: link:../../packages/automation
       '@livynq/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -263,6 +266,9 @@ importers:
 
   packages/agent:
     dependencies:
+      '@livynq/automation':
+        specifier: workspace:*
+        version: link:../automation
       '@livynq/core':
         specifier: workspace:*
         version: link:../core
@@ -272,6 +278,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.6)
+
+  packages/automation:
+    dependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../core
+      '@livynq/model':
+        specifier: workspace:*
+        version: link:../model
 
   packages/core:
     dependencies:

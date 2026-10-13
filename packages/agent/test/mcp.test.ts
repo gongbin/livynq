@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { DemoAdapter, Home } from '@livynq/core';
+import { AutomationEngine } from '@livynq/automation';
 import { createLocalHomeApi, createMcpServer } from '@livynq/agent';
 import type { TokenScope } from '@livynq/model';
 
@@ -21,7 +22,7 @@ async function connect(home: Home, scope: TokenScope) {
 
 async function demoHome() {
   const home = new Home({ dataDir: ':memory:' });
-  home.useAdapter(new DemoAdapter({ simulateSensors: false }));
+  home.useAdapter(new DemoAdapter({ simulateSensors: false })).useExtension(new AutomationEngine());
   await home.start();
   return home;
 }
@@ -30,7 +31,7 @@ test('read-only scope lists read tools and returns compact summaries', async () 
   const home = await demoHome();
   const { client, call } = await connect(home, 'read');
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools.sort(), ['get_device', 'get_history', 'home_overview', 'list_devices']);
+  assert.deepEqual(tools.sort(), ['get_automation', 'get_device', 'get_history', 'home_overview', 'list_automations', 'list_devices']);
 
   const overview = await call('home_overview');
   assert.equal(overview.json.deviceCount, 6);
@@ -76,5 +77,27 @@ test('control scope can act; exposure policy is enforced; commands are audited',
 
   const history = await call('get_history', { target: 'light.bedroom_lamp', attribute: 'levelControl.currentLevel', hours: 1 });
   assert.ok(history.json.points.length >= 2);
+  await home.stop();
+});
+
+test('agents can propose automations as disabled drafts and read traces', async () => {
+  const home = await demoHome();
+  const { call } = await connect(home, 'control');
+  const bad = await call('propose_automation', { automation: { alias: 'Bad', triggers: [{ trigger: 'zone' }], actions: [] } });
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /unsupported trigger "zone"/);
+
+  const draft = { alias: 'Evening lamp', triggers: [{ trigger: 'time', at: '19:00' }], actions: [{ action: 'light.turn_on', target: { entity_id: 'light.bedroom_lamp' } }] };
+  const ok = await call('propose_automation', { automation: draft });
+  assert.equal(ok.json.id, 'evening_lamp');
+  const engine = home.extension<AutomationEngine>('automations')!;
+  assert.equal(engine.get('evening_lamp').enabled, false);
+  assert.equal(engine.get('evening_lamp').createdBy, 'agent:test-agent');
+  assert.match((await call('propose_automation', { automation: draft })).text, /already exists/, 'cannot overwrite');
+
+  await engine.waitForRun('evening_lamp', engine.trigger('evening_lamp')!);
+  const detail = await call('get_automation', { id: 'evening_lamp' });
+  assert.equal(detail.json.traces[0].state, 'finished');
+  assert.equal((await call('list_automations')).json[0].enabled, false);
   await home.stop();
 });
