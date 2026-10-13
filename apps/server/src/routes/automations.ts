@@ -44,8 +44,7 @@ export function registerAutomationRoutes(app: FastifyInstance, home: Home, guard
 
   app.get('/api/v1/automations', read, async () => engine().list());
   app.post('/api/v1/automations/validate', read, async (req) => {
-    const { ok, errors, automation } = engine().validate(configFrom(req.body));
-    return { ok, errors, automation };
+    return engine().validate(configFrom(req.body));
   });
   app.post('/api/v1/automations', admin, async (req, reply) => {
     const q = req.query as { enabled?: string };

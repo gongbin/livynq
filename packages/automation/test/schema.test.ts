@@ -54,9 +54,18 @@ test('disabled items are skipped; shorthand and/or/not conditions', () => {
     actions: [{ stop: 'done' }, { action: 'nothing.here', enabled: false }],
   });
   assert.deepEqual(errors, []);
-  assert.equal(automation!.triggers.length, 1);
+  // Disabled items stay as inert placeholders so trace paths keep matching the YAML indexes.
+  assert.equal(automation!.triggers.length, 2);
+  assert.equal(automation!.triggers[1]!.enabled, false);
   assert.equal(automation!.conditions[0]!.condition, 'or');
-  assert.equal(automation!.actions.length, 1);
+  assert.deepEqual(automation!.actions[1], { type: 'sequence', sequence: [], enabled: false });
+});
+
+test('non-Latin aliases get a stable hashed id', () => {
+  const config = { alias: '回家开灯', triggers: [{ trigger: 'homeassistant', event: 'start' }], actions: [{ delay: 1 }] };
+  const a = normalizeAutomation(config).automation!.id;
+  assert.match(a, /^automation_[0-9a-f]{10}$/);
+  assert.equal(normalizeAutomation(config).automation!.id, a);
 });
 
 test('time pattern and time-of-day scheduling', () => {

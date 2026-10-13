@@ -44,6 +44,7 @@ export interface AutomationInfo {
   enabled: boolean;
   valid: boolean;
   errors: string[];
+  warnings: string[];
   config: Record<string, unknown>;
   version: number;
   createdBy: string;
@@ -162,10 +163,18 @@ export class AutomationEngine implements Exporter {
     return { ...entry.info, running: entry.runs.size };
   }
 
-  validate(config: unknown): { ok: boolean; errors: string[]; automation?: Automation } {
+  /**
+   * Errors block saving; warnings (e.g. entity ids that do not exist yet) do not,
+   * because devices may appear later (MQTT discovery, imports).
+   */
+  validate(config: unknown): { ok: boolean; errors: string[]; warnings: string[]; automation?: Automation } {
     const { automation, errors } = normalizeAutomation(config);
-    const unsupported = automation ? this.#unsupportedActions(automation.actions, 'actions') : [];
-    return { ok: errors.length + unsupported.length === 0, errors: [...errors, ...unsupported], automation };
+    // Check action names on the raw config too, so they are reported together with schema errors.
+    const unsupported = this.#unsupportedRawActions(config).filter((e) => !errors.includes(e));
+    const warnings = this.#home
+      ? [...new Set(entityRefs(config))].filter((id) => !this.#home.registry.getEntity(id) && !id.startsWith('automation.') && !this.#entries.has(id.slice(11))).map((id) => `unknown entity ${id}`)
+      : [];
+    return { ok: errors.length + unsupported.length === 0, errors: [...errors, ...unsupported], warnings, automation };
   }
 
   /**
@@ -302,8 +311,8 @@ export class AutomationEngine implements Exporter {
     return entry;
   }
 
-  #entry(config: Record<string, unknown>, meta: Omit<AutomationInfo, 'running' | 'alias' | 'mode' | 'valid' | 'errors' | 'config' | 'description'>): Entry {
-    const { ok, errors, automation } = this.validate(config);
+  #entry(config: Record<string, unknown>, meta: Omit<AutomationInfo, 'running' | 'alias' | 'mode' | 'valid' | 'errors' | 'warnings' | 'config' | 'description'>): Entry {
+    const { ok, errors, warnings, automation } = this.validate(config);
     return {
       info: {
         ...meta,
@@ -312,6 +321,7 @@ export class AutomationEngine implements Exporter {
         mode: automation?.mode ?? String(config.mode ?? 'single'),
         valid: ok,
         errors,
+        warnings,
         config,
       },
       automation: ok ? automation : undefined,
@@ -322,7 +332,7 @@ export class AutomationEngine implements Exporter {
 
   #arm(entry: Entry): void {
     if (!entry.info.enabled || !entry.automation || entry.disarm) return;
-    const offs = entry.automation.triggers.map((t, i) => attachTrigger(this.#env, t, i, (vars) => this.#onTrigger(entry, vars, false)));
+    const offs = entry.automation.triggers.flatMap((t, i) => (t.enabled === false ? [] : [attachTrigger(this.#env, t, i, (vars) => this.#onTrigger(entry, vars, false))]));
     entry.disarm = () => offs.forEach((off) => off());
   }
 
@@ -376,7 +386,7 @@ export class AutomationEngine implements Exporter {
         trace.state = 'aborted';
         trace.stopReason = String(run.signal.reason ?? 'aborted');
       } else if (err instanceof StopRun) {
-        trace.state = err.error ? 'error' : err.message === 'conditions not met' ? 'finished' : 'stopped';
+        trace.state = err.error ? 'error' : 'stopped';
         trace.stopReason = err.message;
       } else {
         trace.state = 'error';
@@ -411,6 +421,7 @@ export class AutomationEngine implements Exporter {
   async #runSequence(actions: Action[], path: string, run: Run): Promise<void> {
     for (let i = 0; i < actions.length; i++) {
       if (run.signal.aborted) throw new StopRun('aborted');
+      if (actions[i]!.enabled === false) continue;
       await this.#runAction(actions[i]!, `${path}/${i}`, run);
     }
   }
@@ -506,7 +517,7 @@ export class AutomationEngine implements Exporter {
       };
       const onAbort = () => done(undefined, new StopRun('aborted'));
       run.signal.addEventListener('abort', onAbort, { once: true });
-      action.triggers.forEach((t, i) => offs.push(attachTrigger(this.#env, t, i, (vars) => done(vars))));
+      action.triggers.forEach((t, i) => t.enabled !== false && offs.push(attachTrigger(this.#env, t, i, (vars) => done(vars))));
       if (action.timeout !== undefined) timer = setTimeout(() => done(undefined), action.timeout);
     });
   }
@@ -523,31 +534,34 @@ export class AutomationEngine implements Exporter {
     return { automations: ids };
   }
 
-  #unsupportedActions(actions: Action[], path: string): string[] {
-    const out: string[] = [];
-    const supported = [
+  #unsupportedRawActions(config: unknown): string[] {
+    const supported = new Set([
       ...Object.entries(listServices()).flatMap(([domain, services]) => services.map((s) => `${domain}.${s}`)),
       'automation.turn_on',
       'automation.turn_off',
       'automation.trigger',
-    ];
-    const walk = (list: Action[], p: string) =>
-      list.forEach((a, i) => {
-        const here = `${p}[${i}]`;
-        if (a.type === 'service' && !supported.includes(a.action)) out.push(`${here}.action: "${a.action}" is not supported yet`);
-        if (a.type === 'choose') {
-          a.choose.forEach((c, j) => walk(c.sequence, `${here}.choose[${j}].sequence`));
-          if (a.default) walk(a.default, `${here}.default`);
-        }
-        if (a.type === 'if') {
-          walk(a.then, `${here}.then`);
-          if (a.else) walk(a.else, `${here}.else`);
-        }
-        if (a.type === 'repeat') walk(a.sequence, `${here}.repeat.sequence`);
-        if (a.type === 'parallel') a.parallel.forEach((b, j) => walk(b, `${here}.parallel[${j}]`));
-        if (a.type === 'sequence') walk(a.sequence, `${here}.sequence`);
-      });
-    walk(actions, path);
+    ]);
+    const out: string[] = [];
+    const walk = (value: unknown, path: string) => {
+      if (Array.isArray(value)) return value.forEach((v, i) => walk(v, `${path}[${i}]`));
+      if (!value || typeof value !== 'object') return;
+      const o = value as Record<string, unknown>;
+      const name = o.action ?? o.service;
+      if (typeof name === 'string' && /^[a-z_]+\.[a-z_]+$/.test(name) && !supported.has(name) && o.enabled !== false) {
+        out.push(`${path}.action: "${name}" is not supported yet`);
+      }
+      for (const [k, v] of Object.entries(o)) if (k !== 'data' && k !== 'target') walk(v, path ? `${path}.${k}` : k);
+    };
+    const root = (config ?? {}) as Record<string, unknown>;
+    walk(root.actions ?? root.action, 'actions');
     return out;
   }
+}
+
+/** Entity ids referenced under `entity_id` keys anywhere in a config. */
+function entityRefs(value: unknown, key?: string): string[] {
+  if (Array.isArray(value)) return value.flatMap((v) => entityRefs(v, key));
+  if (value && typeof value === 'object') return Object.entries(value).flatMap(([k, v]) => entityRefs(v, k));
+  if (key === 'entity_id' && typeof value === 'string') return value.split(',').map((s) => s.trim()).filter((s) => /^[a-z_]+\.[a-z0-9_]+$/.test(s));
+  return [];
 }

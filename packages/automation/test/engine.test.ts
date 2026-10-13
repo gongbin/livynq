@@ -57,6 +57,7 @@ test('state trigger → conditions → HA service actions, with a trace', async 
   motion(home, true);
   await until(() => engine.traces('motion_lights_the_bedroom').length === 2);
   assert.equal(engine.traces('motion_lights_the_bedroom')[0]!.stopReason, 'conditions not met');
+  assert.equal(engine.traces('motion_lights_the_bedroom')[0]!.state, 'stopped');
   await home.stop();
 });
 
@@ -133,6 +134,10 @@ test('validation, versions, enable/disable, automation.* actions and webhooks', 
     () => engine.save({ alias: 'x', triggers: [{ trigger: 'time', at: '07:00' }], actions: [{ action: 'notify.mobile', data: { message: 'hi' } }] }, 'test'),
     (e: LivynqError) => e.code === 'INVALID_PARAMS' && /notify.mobile" is not supported yet/.test(e.message),
   );
+  const v = engine.validate({ alias: 'x', triggers: [{ trigger: 'nope' }], actions: [{ action: 'light.blink' }, { action: 'light.turn_on', target: { entity_id: 'light.ghost' } }] });
+  assert.deepEqual(v.errors.slice(-1), ['actions[0].action: "light.blink" is not supported yet'], 'reported together with schema errors');
+  assert.deepEqual(v.warnings, ['unknown entity light.ghost']);
+
   const hook = { id: 'hook', alias: 'Hook', triggers: [{ trigger: 'webhook', webhook_id: 'secret-hook-123' }], actions: [{ action: 'switch.toggle', target: { entity_id: 'switch.coffee_machine' } }] };
   engine.save(hook, 'test');
   engine.save({ ...hook, description: 'v2' }, 'test');

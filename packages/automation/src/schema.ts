@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { parseDuration, parseTimeOfDay } from './duration.ts';
 
 /**
@@ -9,7 +10,7 @@ import { parseDuration, parseTimeOfDay } from './duration.ts';
 
 export type Mode = 'single' | 'restart' | 'queued' | 'parallel';
 
-export type Trigger = { id?: string } & (
+export type Trigger = { id?: string; enabled?: false } & (
   | { trigger: 'state'; entity_id: string[]; attribute?: string; from?: (string | null)[]; to?: (string | null)[]; not_from?: string[]; not_to?: string[]; for?: number }
   | { trigger: 'numeric_state'; entity_id: string[]; attribute?: string; above?: number; below?: number; for?: number }
   | { trigger: 'time'; at: number[] }
@@ -285,7 +286,8 @@ function condition(ctx: Ctx, path: string, raw: unknown): Condition | undefined 
 
 function conditionList(ctx: Ctx, path: string, raw: unknown): Condition[] {
   return list(ctx, path, raw)
-    .map((c, i) => (isObj(c) && c.enabled === false ? undefined : condition(ctx, `${path}[${i}]`, c)))
+    // Disabled items stay as no-op placeholders so trace paths match the user's YAML indexes.
+    .map((c, i): Condition | undefined => (isObj(c) && c.enabled === false ? { condition: 'and', conditions: [] } : condition(ctx, `${path}[${i}]`, c)))
     .filter((c): c is Condition => Boolean(c));
 }
 
@@ -389,7 +391,7 @@ function action(ctx: Ctx, path: string, raw: unknown): Action | undefined {
 
 function actionList(ctx: Ctx, path: string, raw: unknown): Action[] {
   return list(ctx, path, raw)
-    .map((a, i) => (isObj(a) && a.enabled === false ? undefined : action(ctx, `${path}[${i}]`, a)))
+    .map((a, i): Action | undefined => (isObj(a) && a.enabled === false ? { type: 'sequence', sequence: [], enabled: false } : action(ctx, `${path}[${i}]`, a)))
     .filter((a): a is Action => Boolean(a));
 }
 
@@ -412,8 +414,9 @@ export function normalizeAutomation(raw: unknown, fallbackId?: string): Validati
   if (raw.variables !== undefined) ctx.error('variables', 'are not supported yet');
 
   const alias = typeof raw.alias === 'string' && raw.alias.trim() ? raw.alias.trim() : undefined;
-  const id = raw.id !== undefined ? String(raw.id) : (fallbackId ?? (alias ? slugId(alias) : ''));
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) ctx.error('id', 'must be 1-64 characters of [A-Za-z0-9_-] (or give an alias in English)');
+  // Non-Latin aliases (e.g. Chinese) slugify to nothing: derive a stable id from a hash instead.
+  const id = raw.id !== undefined ? String(raw.id) : (fallbackId ?? (alias ? slugId(alias) || `automation_${createHash('sha1').update(alias).digest('hex').slice(0, 10)}` : ''));
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) ctx.error('id', 'must be 1-64 characters of [A-Za-z0-9_-]');
   if (!alias) ctx.error('alias', 'is required');
 
   const mode = (raw.mode ?? 'single') as Mode;
@@ -422,7 +425,12 @@ export function normalizeAutomation(raw: unknown, fallbackId?: string): Validati
   if (!Number.isInteger(max) || max < 1 || max > 100) ctx.error('max', 'must be an integer 1..100');
 
   const triggers = list(ctx, 'triggers', raw.triggers ?? raw.trigger)
-    .map((t, i) => (isObj(t) && t.enabled === false ? undefined : trigger(ctx, `triggers[${i}]`, t)))
+    .map((t, i): Trigger | undefined => {
+      if (!(isObj(t) && t.enabled === false)) return trigger(ctx, `triggers[${i}]`, t);
+      const quiet = new Ctx();
+      const parsed = trigger(quiet, `triggers[${i}]`, t);
+      return { ...(quiet.errors.length || !parsed ? { trigger: 'homeassistant', event: 'shutdown' } : parsed), enabled: false } as Trigger;
+    })
     .filter((t): t is Trigger => Boolean(t));
   if (!triggers.length && raw.triggers === undefined && raw.trigger === undefined) ctx.error('triggers', 'at least one trigger is required');
   const conditions = conditionList(ctx, 'conditions', raw.conditions ?? raw.condition);

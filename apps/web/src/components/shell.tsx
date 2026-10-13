@@ -18,7 +18,7 @@ export const navItems: NavItem[] = [
   { route: 'home', icon: 'home', label: 'nav.home' },
   { route: 'devices', icon: 'list', label: 'nav.devices' },
   { route: 'rooms', icon: 'layers', label: 'nav.rooms' },
-  { route: 'automations', icon: 'workflow', label: 'nav.automations', soon: true },
+  { route: 'automations', icon: 'workflow', label: 'nav.automations' },
   { route: 'agents', icon: 'bot', label: 'nav.agents' },
   { route: 'migrate', icon: 'import', label: 'nav.migrate', soon: true },
   { route: 'ecosystems', icon: 'network', label: 'nav.ecosystems' },

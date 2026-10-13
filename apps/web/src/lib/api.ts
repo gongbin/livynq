@@ -44,6 +44,63 @@ export interface DevicePatch {
   exposure?: Partial<ExposurePolicy>;
 }
 
+export type RunState = 'running' | 'finished' | 'stopped' | 'error' | 'aborted';
+
+/** Mirrors `AutomationInfo` in packages/automation/src/engine.ts. */
+export interface AutomationInfo {
+  id: string;
+  alias: string;
+  description?: string;
+  mode: string;
+  enabled: boolean;
+  valid: boolean;
+  errors: string[];
+  config: Record<string, unknown>;
+  version: number;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  lastTriggered: number | null;
+  running: number;
+}
+
+export interface TraceStep {
+  path: string;
+  type: string;
+  alias?: string;
+  startedAt: number;
+  finishedAt?: number;
+  result?: unknown;
+  error?: string;
+}
+
+export interface Trace {
+  runId: string;
+  automationId: string;
+  startedAt: number;
+  finishedAt?: number;
+  state: RunState;
+  trigger: { description: string; vars: Record<string, unknown> };
+  conditions: { path: string; result: boolean }[];
+  steps: TraceStep[];
+  stopReason?: string;
+  error?: string;
+}
+
+export interface AutomationVersion {
+  version: number;
+  source: string;
+  createdAt: number;
+  config: Record<string, unknown>;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  errors: string[];
+  /** Non-blocking, e.g. entity ids that do not exist (yet). */
+  warnings?: string[];
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -59,13 +116,17 @@ export class ApiError extends Error {
 /** The access token; `null` means signed out. Components react to changes (e.g. 401 → login). */
 export const auth = createStore<string | null>(readTokenFromUrl() ?? readLocal(TOKEN_KEY));
 
-/** The server prints `http://host:8581/#token=lvq_...`; consume it once and clean the URL. */
+/**
+ * The server prints `http://host:8581/#token=lvq_...`; consume it once and clean the URL.
+ * An optional `&next=/automations/x` picks the page to land on (handy for deep links).
+ */
 function readTokenFromUrl(): string | null {
-  const match = /^#token=([^&]+)/.exec(location.hash);
+  const match = /^#token=([^&]+)(?:&next=(.*))?$/.exec(location.hash);
   if (!match?.[1]) return null;
   const token = decodeURIComponent(match[1]);
+  const next = match[2] ? decodeURIComponent(match[2]) : '/home';
   writeLocal(TOKEN_KEY, token);
-  history.replaceState(null, '', `${location.pathname}${location.search}#/home`);
+  history.replaceState(null, '', `${location.pathname}${location.search}#${next.startsWith('/') ? next : '/home'}`);
   return token;
 }
 
@@ -124,6 +185,19 @@ export const api = {
   tokens: () => request<TokenInfo[]>('GET', '/tokens'),
   createToken: (name: string, scope: TokenScope) => request<{ token: string; info: TokenInfo }>('POST', '/tokens', { name, scope }),
   revokeToken: (id: string) => request<void>('DELETE', `/tokens/${enc(id)}`),
+
+  automations: () => request<AutomationInfo[]>('GET', '/automations'),
+  automation: (id: string) => request<AutomationInfo>('GET', `/automations/${enc(id)}`),
+  validateAutomation: (config: Record<string, unknown>) => request<ValidationResult>('POST', '/automations/validate', config),
+  createAutomation: (config: Record<string, unknown>, enabled?: boolean) =>
+    request<AutomationInfo>('POST', `/automations${enabled === false ? '?enabled=false' : ''}`, config),
+  updateAutomation: (id: string, config: Record<string, unknown>) => request<AutomationInfo>('PUT', `/automations/${enc(id)}`, config),
+  deleteAutomation: (id: string) => request<void>('DELETE', `/automations/${enc(id)}`),
+  setAutomationEnabled: (id: string, enabled: boolean) => request<AutomationInfo>('POST', `/automations/${enc(id)}/${enabled ? 'enable' : 'disable'}`),
+  triggerAutomation: (id: string, skipConditions: boolean) =>
+    request<{ runId: string | null; started: boolean }>('POST', `/automations/${enc(id)}/trigger`, { skip_conditions: skipConditions }),
+  automationTraces: (id: string) => request<Trace[]>('GET', `/automations/${enc(id)}/traces`),
+  automationVersions: (id: string) => request<AutomationVersion[]>('GET', `/automations/${enc(id)}/versions`),
 
   recentCommands: (limit = 50) => request<AuditRow[]>('GET', `/commands/recent?limit=${limit}`),
 };

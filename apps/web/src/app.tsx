@@ -9,13 +9,14 @@ import { useRoute, type Route } from './lib/router.ts';
 import { clearSession, loadSession } from './lib/session.ts';
 import { useStore } from './lib/store.ts';
 import { AgentsPage } from './pages/agents.tsx';
+import { AutomationsPage } from './pages/automations.tsx';
 import { DevicesPage } from './pages/devices.tsx';
 import { EcosystemsPage } from './pages/ecosystems.tsx';
 import { HomePage } from './pages/home.tsx';
 import { LoginPage } from './pages/login.tsx';
 import { RoomsPage } from './pages/rooms.tsx';
 import { MorePage, SettingsPage } from './pages/settings.tsx';
-import { AutomationsPage, MigratePage } from './pages/stubs.tsx';
+import { MigratePage } from './pages/stubs.tsx';
 import { WallPage } from './pages/wall.tsx';
 
 const pages: Record<Exclude<Route, 'wall'>, ComponentType> = {
