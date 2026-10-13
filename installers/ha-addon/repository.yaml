@@ -1,0 +1,6 @@
+# Home Assistant add-on repository manifest. Publish the contents of installers/ha-addon/
+# as the root of a separate repository (e.g. gongbin/livynq-addons) and add its URL in
+# Settings → Add-ons → Add-on store → ⋮ → Repositories.
+name: Livynq add-ons
+url: https://github.com/gongbin/livynq
+maintainer: Livynq

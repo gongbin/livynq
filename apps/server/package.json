@@ -20,6 +20,7 @@
     "@livynq/exporter-homekit": "workspace:*",
     "@livynq/importer-homeassistant": "workspace:*",
     "@livynq/model": "workspace:*",
+    "@livynq/plugin-homeassistant": "workspace:*",
     "@livynq/plugin-host": "workspace:*",
     "@livynq/plugin-virtual": "workspace:*",
     "@livynq/sdk": "workspace:*",

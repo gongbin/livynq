@@ -208,6 +208,9 @@ importers:
       '@livynq/model':
         specifier: workspace:*
         version: link:../../packages/model
+      '@livynq/plugin-homeassistant':
+        specifier: workspace:*
+        version: link:../../plugins/homeassistant
       '@livynq/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
@@ -381,6 +384,25 @@ importers:
       '@livynq/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
+
+  plugins/homeassistant:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
 
   plugins/virtual:
     dependencies:

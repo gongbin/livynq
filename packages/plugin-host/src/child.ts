@@ -72,6 +72,7 @@ export function runPluginHost(): void {
         },
         remove: (deviceId: string) => request({ type: 'request', method: 'removeDevice', deviceId }),
         known: () => request<Device[]>({ type: 'request', method: 'knownDevices' }),
+        exists: (deviceId: string) => request<boolean>({ type: 'request', method: 'deviceExists', deviceId }),
       },
       endpointId: (deviceId: string, key: string) => request<number>({ type: 'request', method: 'endpointId', deviceId, key }),
       onStop: (fn) => void stopHooks.push(fn),

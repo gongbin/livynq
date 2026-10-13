@@ -16,6 +16,7 @@ export type ChildMessage =
   | { type: 'request'; id: number; method: 'upsertDevice'; def: DeviceDefinition }
   | { type: 'request'; id: number; method: 'removeDevice'; deviceId: string }
   | { type: 'request'; id: number; method: 'knownDevices' }
+  | { type: 'request'; id: number; method: 'deviceExists'; deviceId: string }
   | { type: 'request'; id: number; method: 'endpointId'; deviceId: string; key: string }
   | { type: 'update'; deviceId: string; endpointId: number; capability: string; attributes: Record<string, AttributeValue> }
   | { type: 'availability'; deviceId: string; availability: Availability }

@@ -1,0 +1,31 @@
+name: Livynq
+version: "0.2.0"
+slug: livynq
+description: Lightweight hub that bridges your Home Assistant entities to Apple Home, Matter and AI agents (MCP)
+url: https://github.com/gongbin/livynq
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: services
+boot: auto
+# HomeKit and Matter discovery need mDNS on the LAN.
+host_network: true
+homeassistant_api: true
+webui: "http://[HOST]:[PORT:8581]"
+ports:
+  8581/tcp: 8581
+ports_description:
+  8581/tcp: Livynq web UI, API and MCP endpoint
+# Zigbee / Z-Wave sticks for the built-in adapters
+uart: true
+usb: true
+map:
+  - addon_config:rw
+backup: hot
+options:
+  log_level: info
+  demo: false
+schema:
+  log_level: list(debug|info|warn|error)
+  demo: bool

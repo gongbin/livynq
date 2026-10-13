@@ -169,6 +169,7 @@ export class Home {
         for (const key of this.#handles(id)) this.#handlers.delete(key);
       },
       knownDevices: () => this.registry.listDevices().filter((d) => d.adapter === adapterId),
+      deviceExists: (id) => Boolean(this.registry.getDevice(id)),
       deviceState: (id) => (this.registry.getDevice(id)?.adapter === adapterId ? this.registry.getState(id) : {}),
       endpointId: (deviceId, key) => this.registry.endpointId(deviceId, key),
     };

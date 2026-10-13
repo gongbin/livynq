@@ -48,6 +48,8 @@ export interface PluginContext {
     remove(id: string): Promise<void>;
     /** Devices this plugin registered in earlier runs. */
     known(): Promise<Device[]>;
+    /** Whether any integration already provides this device (avoid duplicates when bridging). */
+    exists(id: string): Promise<boolean>;
   };
   /** Stable numeric endpoint id for a plugin-specific key, persisted by the hub. */
   endpointId(deviceId: string, key: string): Promise<number>;

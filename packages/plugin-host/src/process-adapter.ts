@@ -237,6 +237,8 @@ export class ProcessPluginAdapter implements Adapter {
         });
       case 'knownDevices':
         return reply(() => ctx.knownDevices());
+      case 'deviceExists':
+        return reply(() => ctx.deviceExists(msg.deviceId));
       case 'endpointId':
         return reply(() => ctx.endpointId(msg.deviceId, msg.key));
     }

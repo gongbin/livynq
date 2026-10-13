@@ -43,7 +43,13 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
       new MqttAdapter({ url: config.mqtt.url, username: config.mqtt.username, password: config.mqtt.password, discoveryPrefix: config.mqtt.discoveryPrefix }),
     );
   }
-  for (const entry of config.plugins) {
+  // Running as a Home Assistant add-on: bridge HA's entities automatically (Supervisor provides the token).
+  const plugins = [...config.plugins];
+  if (process.env.SUPERVISOR_TOKEN && !plugins.some((p) => p.module === '@livynq/plugin-homeassistant')) {
+    plugins.push({ module: '@livynq/plugin-homeassistant', isolation: 'in-process' });
+    logger.info('Home Assistant add-on detected: bridging Home Assistant entities');
+  }
+  for (const entry of plugins) {
     if (entry.enabled === false) continue;
     try {
       const plugin = resolvePlugin(entry, {

@@ -35,6 +35,8 @@ export interface AdapterContext {
   removeDevice(id: DeviceId): void;
   /** Devices this adapter registered in earlier runs (useful to mark them offline or clean up). */
   knownDevices(): Device[];
+  /** Whether any adapter (not just this one) has registered the device. */
+  deviceExists(id: DeviceId): boolean;
   /** Current state of one of this adapter's devices. */
   deviceState(id: DeviceId): DeviceState;
   /** Stable numeric endpoint id for an adapter specific key. */

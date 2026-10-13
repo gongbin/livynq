@@ -39,6 +39,7 @@ export class InProcessPluginAdapter implements Adapter {
         upsert: async (def) => wrap(ctx.upsertDevice(def)),
         remove: async (id) => ctx.removeDevice(id),
         known: async () => ctx.knownDevices(),
+        exists: async (id) => ctx.deviceExists(id),
       },
       endpointId: async (deviceId, key) => ctx.endpointId(deviceId, key),
       onStop: (fn) => void this.#stopHooks.push(fn),
