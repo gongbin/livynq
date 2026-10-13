@@ -74,10 +74,11 @@ export interface ImportPlan {
 const SUPPORTED_DOMAINS = new Set(['light', 'switch', 'sensor', 'binary_sensor']);
 
 const INTEGRATION_NOTES: Record<string, string> = {
-  zha: 'ZHA Zigbee: direct takeover arrives with the Zigbee adapter; meanwhile run Zigbee2MQTT',
-  zwave_js: 'Z-Wave JS: takeover arrives with the Z-Wave adapter (M2)',
-  matter: 'Matter: add the device to Livynq via multi-admin (M2)',
-  esphome: 'ESPHome: native API adapter is planned for M1',
+  zha: 'ZHA Zigbee: move the stick to the Livynq Zigbee integration (devices are re-paired), or run Zigbee2MQTT',
+  zwave_js: 'Z-Wave JS: use the stick with the Livynq Z-Wave integration; copy the S2/S0 keys into plugin-data/zwave/keys.json to keep secure devices',
+  matter: 'Matter: share the device from the Home Assistant app (multi-admin) and add it in Livynq with the pairing code',
+  esphome: 'ESPHome: add the node in Livynq (Add device → ESPHome) with its API encryption key',
+  shelly: 'Shelly: add the device in Livynq (Add device → Shelly)',
   homekit_controller: 'HomeKit controller: not supported yet',
 };
 

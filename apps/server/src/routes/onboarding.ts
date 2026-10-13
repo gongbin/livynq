@@ -13,6 +13,7 @@ const OFFICIAL: { method: string; module: string; id: string; isolation: 'proces
   { method: 'zigbee', module: '@livynq/plugin-zigbee', id: 'zigbee', isolation: 'process' },
   { method: 'zwave', module: '@livynq/plugin-zwave', id: 'zwave', isolation: 'process' },
   { method: 'esphome', module: '@livynq/plugin-esphome', id: 'esphome', isolation: 'process' },
+  { method: 'shelly', module: '@livynq/plugin-shelly', id: 'shelly', isolation: 'process' },
   { method: 'homeassistant', module: '@livynq/plugin-homeassistant', id: 'homeassistant', isolation: 'in-process' },
   { method: 'virtual', module: '@livynq/plugin-virtual', id: 'virtual', isolation: 'in-process' },
 ];

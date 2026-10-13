@@ -1,0 +1,20 @@
+{
+  "name": "@livynq/plugin-shelly",
+  "version": "0.1.0",
+  "description": "Shelly Gen2+ devices (Plus, Pro, Gen3, Gen4) over the local RPC API",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*",
+    "bonjour-service": "1.4.4"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*",
+    "@types/ws": "^8.18.2",
+    "ws": "8.22.0"
+  }
+}
