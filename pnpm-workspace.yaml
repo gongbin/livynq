@@ -3,4 +3,5 @@ packages:
   - apps/*
   - plugins/*
 allowBuilds:
+  '@serialport/bindings-cpp': true
   esbuild: true

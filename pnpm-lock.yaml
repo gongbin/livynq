@@ -379,6 +379,28 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  plugins/zigbee:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      zigbee-herdsman:
+        specifier: 11.0.3
+        version: 11.0.3
+      zigbee-herdsman-converters:
+        specifier: 26.118.0
+        version: 26.118.0
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+
 packages:
 
   '@2colors/esphome-native-api@1.3.6':
@@ -471,6 +493,9 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@date-fns/tz@1.5.0':
+    resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -865,6 +890,26 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@serialport/bindings-cpp@13.0.1':
+    resolution: {integrity: sha512-j8nD5Om5MaQwzptncOiajIKj5RuMy7RiretZYmW4ZpaaLBc5XrapdojjL6AVwhpMWao8iSstlwEx/hpTIAp6mw==}
+    engines: {node: '>=18.0.0'}
+
+  '@serialport/bindings-interface@1.2.2':
+    resolution: {integrity: sha512-CJaUd5bLvtM9c5dmO9rPBHPXTa9R2UwpkJ0wdh9JCYcbrPWsKz+ErvR0hBLeo7NPeiFdjFO4sonRljiw4d2XiA==}
+    engines: {node: ^12.22 || ^14.13 || >=16}
+
+  '@serialport/parser-delimiter@13.0.0':
+    resolution: {integrity: sha512-Qqyb0FX1avs3XabQqNaZSivyVbl/yl0jywImp7ePvfZKLwx7jBZjvL+Hawt9wIG6tfq6zbFM24vzCCK7REMUig==}
+    engines: {node: '>=20.0.0'}
+
+  '@serialport/parser-readline@13.0.0':
+    resolution: {integrity: sha512-dov3zYoyf0dt1Sudd1q42VVYQ4WlliF0MYvAMA3MOyiU1IeG4hl0J6buBA2w4gl3DOCC05tGgLDN/3yIL81gsA==}
+    engines: {node: '>=20.0.0'}
+
+  '@serialport/stream@13.0.0':
+    resolution: {integrity: sha512-F7xLJKsjGo2WuEWMSEO1SimRcOA+WtWICsY13r0ahx8s2SecPQH06338g28OT7cW7uRXI7oEQAk62qh5gHJW3g==}
+    engines: {node: '>=20.0.0'}
+
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
 
@@ -1071,6 +1116,9 @@ packages:
   bonjour-hap@3.10.5:
     resolution: {integrity: sha512-8E81oIQF0pjlDNVAKcAGwPYYG9BKD42Q8Fi7eJ/vYxEwyL/M8YpjM4gnFC1QTmagWI3jzbw7jPI0q2C1qWfQLQ==}
 
+  bonjour-service@1.4.4:
+    resolution: {integrity: sha512-jCZcVv7eoc4QesRscwEZtSROBen+6LpKAmBIsQYQrsAeVHLyMXWX/t6eIV5KiRZYNUBl8eVqImEEMQ8L5+c/Kw==}
+
   brace-expansion@5.0.12:
     resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
     engines: {node: 20 || >=22}
@@ -1152,6 +1200,19 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  debounce@3.0.0:
+    resolution: {integrity: sha512-64byRbF0/AirwbuHqB3/ZpMG9/nckDa6ZA0yd6UnaQNwbbemCOwvz2sL5sjXLHhZHADyiwLm0M5qMhltUUx+TA==}
+    engines: {node: '>=20'}
+
+  debug@4.4.0:
+    resolution: {integrity: sha512-6WTZ/IxCY/T6BALoZHaE4ctp9xm+Z5kY/pzYaCHRFeyVhojxlrm+46y68HA6hr0TcwEssoxNiDEUJQjfPZ/RYA==}
+    engines: {node: '>=6.0'}
+    peerDependencies:
+      supports-color: '*'
+    peerDependenciesMeta:
+      supports-color:
+        optional: true
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -1618,6 +1679,14 @@ packages:
     resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
     engines: {node: '>=18'}
 
+  node-addon-api@8.3.0:
+    resolution: {integrity: sha512-8VOpLHFrOQlAH+qA0ZzuGRlALRA6/LVh8QJldbrC4DY0hXoMP0l4Acq8TzFC018HztWiRqyCEj2aTWY2UvnJUg==}
+    engines: {node: ^18 || ^20 || >= 21}
+
+  node-gyp-build@4.8.4:
+    resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
+    hasBin: true
+
   node-persist@0.0.12:
     resolution: {integrity: sha512-Fbia3FYnURzaql53wLu0t19dmAwQg/tXT6O7YPmdwNwysNKEyFmgoT2BQlPD3XXQnYeiQVNvR5lfvufGwKuxhg==}
 
@@ -1847,6 +1916,9 @@ packages:
     resolution: {integrity: sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==}
     engines: {node: '>= 0.4'}
 
+  slip@1.0.2:
+    resolution: {integrity: sha512-XrcHe3NAcyD3wO+O4I13RcS4/3AF+S9RvGNj9JhJeS02HyImwD2E3QWLrmn9hBfL+fB6yapagwxRkeyYzhk98g==}
+
   smart-buffer@4.2.0:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
     engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
@@ -2051,6 +2123,18 @@ packages:
     engines: {node: '>= 14.6'}
     hasBin: true
 
+  zigbee-herdsman-converters@26.118.0:
+    resolution: {integrity: sha512-BUwWsdGjzp0aNeSE3ha/1iCQqu/rBZYUIx8exf7UIvvx1nJ8M9hg5LuCNQQITkL68WI9rwRO1NREiM6n68FmQA==}
+    engines: {node: ^22.2.0 || ^24 || <=26.2}
+
+  zigbee-herdsman@11.0.3:
+    resolution: {integrity: sha512-63gxKNBeBy/j0us87LJgPZVW0Ftc2P6IzKtlHIRp3IxJUsxKghU1DzBgLe3EoSkiPzQdv4IhOCrjcmhq/YrpXg==}
+    engines: {node: ^22.2.0 || ^24 || <=26.2}
+
+  zigbee-on-host@0.3.2:
+    resolution: {integrity: sha512-63/Magh42EyUmJsMkCwh56oi1jXGzPj6nFJKIZcFvfDo8ZpUSaW2pmRArW5inhyhLDr4TjpJay7GeH5NpON35g==}
+    engines: {node: '>=22.12.0'}
+
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
@@ -2180,6 +2264,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@date-fns/tz@1.5.0': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
@@ -2466,6 +2552,31 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
+  '@serialport/bindings-cpp@13.0.1':
+    dependencies:
+      '@serialport/bindings-interface': 1.2.2
+      '@serialport/parser-readline': 13.0.0
+      debug: 4.4.0
+      node-addon-api: 8.3.0
+      node-gyp-build: 4.8.4
+    transitivePeerDependencies:
+      - supports-color
+
+  '@serialport/bindings-interface@1.2.2': {}
+
+  '@serialport/parser-delimiter@13.0.0': {}
+
+  '@serialport/parser-readline@13.0.0':
+    dependencies:
+      '@serialport/parser-delimiter': 13.0.0
+
+  '@serialport/stream@13.0.0':
+    dependencies:
+      '@serialport/bindings-interface': 1.2.2
+      debug: 4.4.0
+    transitivePeerDependencies:
+      - supports-color
+
   '@tailwindcss/node@4.3.3':
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -2673,6 +2784,11 @@ snapshots:
       multicast-dns: 7.2.5
       multicast-dns-service-types: 1.1.0
 
+  bonjour-service@1.4.4:
+    dependencies:
+      fast-deep-equal: 3.1.3
+      multicast-dns: 7.2.5
+
   brace-expansion@5.0.12:
     dependencies:
       balanced-match: 4.0.4
@@ -2750,6 +2866,12 @@ snapshots:
       which: 2.0.2
 
   csstype@3.2.3: {}
+
+  debounce@3.0.0: {}
+
+  debug@4.4.0:
+    dependencies:
+      ms: 2.1.3
 
   debug@4.4.3:
     dependencies:
@@ -3241,6 +3363,10 @@ snapshots:
     dependencies:
       content-type: 2.1.0
 
+  node-addon-api@8.3.0: {}
+
+  node-gyp-build@4.8.4: {}
+
   node-persist@0.0.12:
     dependencies:
       mkdirp: 0.5.6
@@ -3498,6 +3624,8 @@ snapshots:
       side-channel-map: 1.0.1
       side-channel-weakmap: 1.0.2
 
+  slip@1.0.2: {}
+
   smart-buffer@4.2.0: {}
 
   socks@2.8.10:
@@ -3650,6 +3778,30 @@ snapshots:
   yallist@3.1.1: {}
 
   yaml@2.9.1: {}
+
+  zigbee-herdsman-converters@26.118.0:
+    dependencies:
+      iconv-lite: 0.7.3
+      semver: 7.8.5
+      zigbee-herdsman: 11.0.3
+    transitivePeerDependencies:
+      - supports-color
+
+  zigbee-herdsman@11.0.3:
+    dependencies:
+      '@date-fns/tz': 1.5.0
+      '@serialport/bindings-cpp': 13.0.1
+      '@serialport/parser-delimiter': 13.0.0
+      '@serialport/stream': 13.0.0
+      bonjour-service: 1.4.4
+      debounce: 3.0.0
+      fast-deep-equal: 3.1.3
+      slip: 1.0.2
+      zigbee-on-host: 0.3.2
+    transitivePeerDependencies:
+      - supports-color
+
+  zigbee-on-host@0.3.2: {}
 
   zod-to-json-schema@3.25.2(zod@4.6.6):
     dependencies:

@@ -1,0 +1,20 @@
+{
+  "name": "@livynq/plugin-zigbee",
+  "version": "0.1.0",
+  "description": "Built-in Zigbee coordinator support for Livynq (zigbee-herdsman)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*",
+    "yaml": "2.9.1",
+    "zigbee-herdsman": "11.0.3",
+    "zigbee-herdsman-converters": "26.118.0"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}
