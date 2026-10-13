@@ -18,6 +18,7 @@ export function runPluginHost(): void {
   const send = (msg: ChildMessage) => process.send!(msg);
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   const handlers = new Map<string, Record<string, CommandHandler>>();
+  const actions = new Map<string, (params: Record<string, unknown>) => unknown>();
   const state = new Map<string, StateSnapshot>();
   const stopHooks: (() => void | Promise<void>)[] = [];
   let nextId = 1;
@@ -76,6 +77,12 @@ export function runPluginHost(): void {
       },
       endpointId: (deviceId: string, key: string) => request<number>({ type: 'request', method: 'endpointId', deviceId, key }),
       onStop: (fn) => void stopHooks.push(fn),
+      actions: {
+        register: (name, description, handler) => {
+          actions.set(name, handler);
+          send({ type: 'registerAction', name, description });
+        },
+      },
     };
     const url = isAbsolute(msg.module) ? pathToFileURL(msg.module).href : msg.module;
     const mod = (await import(url)) as { default?: unknown };
@@ -108,6 +115,17 @@ export function runPluginHost(): void {
           send({ type: 'invokeResult', id: msg.id, ok: true });
         } catch (err) {
           send({ type: 'invokeResult', id: msg.id, ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      case 'action': {
+        const handler = actions.get(msg.name);
+        try {
+          if (!handler) throw new Error(`Unknown action ${msg.name}`);
+          const value = await handler(msg.params);
+          send({ type: 'actionResult', id: msg.id, ok: true, value: value === undefined ? null : JSON.parse(JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))) });
+        } catch (err) {
+          send({ type: 'actionResult', id: msg.id, ok: false, error: err instanceof Error ? err.message : String(err) });
         }
         return;
       }

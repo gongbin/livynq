@@ -217,6 +217,9 @@ importers:
       '@livynq/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
+      '@livynq/plugin-matter':
+        specifier: workspace:*
+        version: link:../../plugins/matter
       '@livynq/plugin-virtual':
         specifier: workspace:*
         version: link:../../plugins/virtual
@@ -421,6 +424,31 @@ importers:
       ws:
         specifier: 8.22.0
         version: 8.22.0
+
+  plugins/matter:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@matter/main':
+        specifier: 0.17.9
+        version: 0.17.9
+      '@matter/nodejs':
+        specifier: 0.17.9
+        version: 0.17.9
+      '@project-chip/matter.js':
+        specifier: 0.17.9
+        version: 0.17.9
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/exporter-matter':
+        specifier: workspace:*
+        version: link:../../packages/exporter-matter
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/virtual:
     dependencies:
@@ -824,6 +852,9 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@project-chip/matter.js@0.17.9':
+    resolution: {integrity: sha512-beJoIOdDksKTqdSgzfjGaqUiFwVZfnc3lkoDD2DE+eiNaiCljgpIXs8Ls0Qer3ETyTCNrWPae8IsjZYATiDeOQ==}
 
   '@richardhopton/noise-c.wasm@0.5.0':
     resolution: {integrity: sha512-ueWk5iy/0fOf4cNHXfZvwq1w1mIsgi/2ZMO+3bjiV+KupmWdgyTljWNIh7wjjwML7r1BtVkzjws9wHwVlp4JPA==}
@@ -2609,6 +2640,14 @@ snapshots:
   '@noble/hashes@2.4.0': {}
 
   '@pinojs/redact@0.4.0': {}
+
+  '@project-chip/matter.js@0.17.9':
+    dependencies:
+      '@matter/general': 0.17.9
+      '@matter/model': 0.17.9
+      '@matter/node': 0.17.9
+      '@matter/protocol': 0.17.9
+      '@matter/types': 0.17.9
 
   '@richardhopton/noise-c.wasm@0.5.0': {}
 

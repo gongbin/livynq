@@ -32,7 +32,9 @@ export interface ProcessPluginOptions {
 
 /** In a single executable the binary relaunches itself as the plugin host; otherwise fork the TS entry. */
 function spawnHost(id: string): ChildProcess {
-  const env = { ...process.env, LIVYNQ_PLUGIN_ID: id };
+  // NODE_TEST_CONTEXT would make a forked child run as a test-runner worker (when the hub itself runs under node --test).
+  const { NODE_TEST_CONTEXT: _testContext, ...inherited } = process.env;
+  const env = { ...inherited, LIVYNQ_PLUGIN_ID: id };
   const stdio: ['ignore', 'pipe', 'pipe', 'ipc'] = ['ignore', 'pipe', 'pipe', 'ipc'];
   if (isSea()) return spawn(process.execPath, [], { stdio, env: { ...env, LIVYNQ_ROLE: 'plugin-host' } });
   return fork(fileURLToPath(new URL('./child-entry.ts', import.meta.url)), [], { execArgv: ['--disable-warning=ExperimentalWarning'], stdio, env });
@@ -67,7 +69,7 @@ export class ProcessPluginAdapter implements Adapter {
   #lastFailure: string | undefined;
   #startedAt: number | null = null;
   readonly #handles = new Map<string, DeviceHandle>();
-  readonly #invokes = new Map<number, { resolve: () => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  readonly #invokes = new Map<number, { resolve: (value?: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   #nextInvoke = 1;
   /** Resolves the pending spawn() promise once the child started, failed or exited. */
   #onStarted: (() => void) | undefined;
@@ -196,6 +198,18 @@ export class ProcessPluginAdapter implements Adapter {
         handle?.handle(msg.endpointId, msg.capability, Object.fromEntries(msg.commands.map((command) => [command, (params: Record<string, unknown>) => this.#invoke(msg.deviceId, msg.endpointId, msg.capability, command, params)])));
         return;
       }
+      case 'registerAction':
+        ctx.registerAction(msg.name, msg.description, (params) => this.#action(msg.name, params));
+        return;
+      case 'actionResult': {
+        const p = this.#invokes.get(msg.id);
+        if (!p) return;
+        this.#invokes.delete(msg.id);
+        clearTimeout(p.timer);
+        if (msg.ok) p.resolve(msg.value as never);
+        else p.reject(new LivynqError('INTERNAL', msg.error));
+        return;
+      }
       case 'invokeResult': {
         const p = this.#invokes.get(msg.id);
         if (!p) return;
@@ -252,8 +266,22 @@ export class ProcessPluginAdapter implements Adapter {
         this.#invokes.delete(id);
         reject(new LivynqError('TIMEOUT', `Plugin ${this.id} did not answer`));
       }, INVOKE_TIMEOUT_MS);
-      this.#invokes.set(id, { resolve, reject, timer });
+      this.#invokes.set(id, { resolve: () => resolve(), reject, timer });
       this.#send({ type: 'invoke', id, deviceId, endpointId, capability, command, params });
+    });
+  }
+
+  /** Plugin actions (e.g. commissioning) may take minutes; they get a long timeout. */
+  #action(name: string, params: Record<string, unknown>): Promise<unknown> {
+    if (this.#status !== 'running') return Promise.reject(new LivynqError('DEVICE_OFFLINE', `Plugin ${this.id} is ${this.#status}`));
+    const id = this.#nextInvoke++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#invokes.delete(id);
+        reject(new LivynqError('TIMEOUT', `Plugin ${this.id} action ${name} timed out`));
+      }, 5 * 60_000);
+      this.#invokes.set(id, { resolve, reject, timer });
+      this.#send({ type: 'action', id, name, params });
     });
   }
 

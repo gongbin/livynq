@@ -180,9 +180,13 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   app.get('/api/v1/plugins', admin, async () =>
     home.adapters().map((id) => {
       const adapter = home.adapter<Adapter & { info?: () => PluginRuntimeInfo }>(id);
-      return adapter?.info?.() ?? { id, isolation: 'in-process', status: 'running', module: id, builtin: true };
+      return { ...(adapter?.info?.() ?? { id, isolation: 'in-process', status: 'running', module: id, builtin: true }), actions: home.actions(id) };
     }),
   );
+  app.post('/api/v1/plugins/:id/actions/:name', admin, async (req) => {
+    const { id, name } = req.params as { id: string; name: string };
+    return { result: (await home.invokeAction(id, name, (req.body ?? {}) as Record<string, unknown>, source(req))) ?? null };
+  });
   app.post('/api/v1/plugins/:id/restart', admin, async (req) => {
     const adapter = home.adapter<Adapter & { restart?: () => Promise<void>; info: () => PluginRuntimeInfo }>((req.params as { id: string }).id);
     if (!adapter?.restart) throw new LivynqError('NOT_SUPPORTED', 'Only process-isolated plugins can be restarted at runtime');

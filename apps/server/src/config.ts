@@ -14,7 +14,7 @@ export interface LivynqConfig {
   logLevel: string;
   location?: { latitude: number; longitude: number };
   backup: { automatic: boolean; keep: number };
-  matter: { bridge: { enabled: boolean; port: number; passcode?: number; discriminator?: number } };
+  matter: { bridge: { enabled: boolean; port: number; passcode?: number; discriminator?: number }; networkInterface?: string };
   plugins: PluginEntry[];
   configFile: string;
 }
@@ -76,6 +76,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
         passcode: yaml.matter?.bridge?.passcode,
         discriminator: yaml.matter?.bridge?.discriminator,
       },
+      networkInterface: yaml.matter?.networkInterface,
     },
     plugins: Array.isArray(yaml.plugins) ? (yaml.plugins as PluginEntry[]) : [],
     configFile: file,

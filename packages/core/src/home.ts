@@ -64,6 +64,7 @@ export class Home {
   readonly #exporters = new Map<string, Exporter>();
   readonly #extensions = new Map<string, Exporter>();
   readonly #handlers = new Map<string, { adapter: string; handlers: Record<string, CommandHandler> }>();
+  readonly #actions = new Map<string, Map<string, { description: string; handler: (params: Record<string, unknown>) => unknown }>>();
   readonly #commandTimeoutMs: number;
   #pruneTimer: NodeJS.Timeout | undefined;
   #confirmationTimer: NodeJS.Timeout | undefined;
@@ -174,6 +175,12 @@ export class Home {
       },
       knownDevices: () => this.registry.listDevices().filter((d) => d.adapter === adapterId),
       deviceExists: (id) => Boolean(this.registry.getDevice(id)),
+      registerAction: (name, description, handler) => {
+        if (!/^[a-zA-Z][\w-]{0,40}$/.test(name)) throw new LivynqError('INVALID_PARAMS', `Invalid action name ${name}`);
+        let map = this.#actions.get(adapterId);
+        if (!map) this.#actions.set(adapterId, (map = new Map()));
+        map.set(name, { description, handler });
+      },
       deviceState: (id) => (this.registry.getDevice(id)?.adapter === adapterId ? this.registry.getState(id) : {}),
       endpointId: (deviceId, key) => this.registry.endpointId(deviceId, key),
     };
@@ -253,6 +260,23 @@ export class Home {
       params: r.params ? JSON.parse(String(r.params)) : {},
       ok: r.ok === 1,
     }));
+  }
+
+  // ---------------------------------------------------------------- plugin actions
+
+  actions(adapterId: string): { name: string; description: string }[] {
+    return [...(this.#actions.get(adapterId) ?? [])].map(([name, a]) => ({ name, description: a.description }));
+  }
+
+  async invokeAction(adapterId: string, name: string, params: Record<string, unknown>, source: string): Promise<unknown> {
+    const action = this.#actions.get(adapterId)?.get(name);
+    if (!action) throw new LivynqError('NOT_FOUND', `${adapterId} has no action "${name}"`, `Available: ${this.actions(adapterId).map((a) => a.name).join(', ') || 'none'}`);
+    this.log.info({ adapter: adapterId, action: name, source }, 'plugin action');
+    try {
+      return await action.handler(params);
+    } catch (err) {
+      throw err instanceof LivynqError ? err : new LivynqError('INTERNAL', err instanceof Error ? err.message : String(err));
+    }
   }
 
   // ---------------------------------------------------------------- lookup

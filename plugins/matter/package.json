@@ -1,0 +1,21 @@
+{
+  "name": "@livynq/plugin-matter",
+  "version": "0.1.0",
+  "description": "Matter controller for Livynq: commission and control Matter devices (matter.js)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*",
+    "@matter/main": "0.17.9",
+    "@matter/nodejs": "0.17.9",
+    "@project-chip/matter.js": "0.17.9"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*",
+    "@livynq/exporter-matter": "workspace:*"
+  }
+}

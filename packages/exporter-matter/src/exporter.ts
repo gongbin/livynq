@@ -36,6 +36,8 @@ export interface MatterExporterOptions {
   passcode?: number;
   discriminator?: number;
   name?: string;
+  /** Limit Matter mDNS to one network interface (hosts with VPN / Docker interfaces). */
+  networkInterface?: string;
   /** Tests: also forward changes made through local (offline) contexts. */
   forwardLocalChanges?: boolean;
 }
@@ -121,6 +123,7 @@ export class MatterExporter implements Exporter {
     Logger.level = 'warn';
     const environment = Environment.default;
     environment.vars.set('storage.path', this.#options.storagePath);
+    if (this.#options.networkInterface) environment.vars.set('mdns.networkInterface', this.#options.networkInterface);
     const name = this.#options.name ?? 'Livynq Bridge';
     this.#server = await ServerNode.create({
       id: 'livynq-bridge',

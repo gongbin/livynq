@@ -39,6 +39,7 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
                                 Import areas, devices, entity ids and automations from Home Assistant
   imports list | imports revert <id>
   plugin list | plugin restart <id>
+  plugin action <id> <name> [--params JSON]    e.g. plugin action matter commission --params '{"code":"34970112332"}'
   plugin add <npm-package | ./path> [--isolation in-process]   Install and enable a plugin (restart to load)
   plugin remove <id>
   backup create [--out file] [--password P]    Download a backup from the running hub
@@ -334,6 +335,11 @@ async function run(): Promise<void> {
         return print('removed from config; restart Livynq to unload it', { ok: true });
       }
       const c = client();
+      if (sub === 'action' && rest[0] && rest[1]) {
+        const params = str('params') ? (JSON.parse(str('params')!) as Record<string, unknown>) : {};
+        const r = await c.request<{ result: unknown }>('POST', `/api/v1/plugins/${encodeURIComponent(rest[0])}/actions/${encodeURIComponent(rest[1])}`, params);
+        return print(JSON.stringify(r.result, null, 2), r);
+      }
       if (sub === 'restart' && rest[0]) {
         const info = await c.request<Record<string, unknown>>('POST', `/api/v1/plugins/${encodeURIComponent(rest[0])}/restart`, {});
         return print(`${rest[0]}: ${String(info.status)}`, info);

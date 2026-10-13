@@ -55,6 +55,13 @@ export interface PluginContext {
   endpointId(deviceId: string, key: string): Promise<number>;
   /** Called when the hub stops or reloads the plugin. */
   onStop(fn: () => void | Promise<void>): void;
+  /**
+   * Operations users can trigger from the UI / CLI / API (admin only), e.g. "commission" with a
+   * Matter pairing code or "permitJoin" for Zigbee. The handler's result is returned to the caller.
+   */
+  readonly actions: {
+    register(name: string, description: string, handler: (params: Record<string, unknown>) => unknown): void;
+  };
 }
 
 export interface PluginDefinition {

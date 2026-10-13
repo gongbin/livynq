@@ -43,6 +43,7 @@ export class InProcessPluginAdapter implements Adapter {
       },
       endpointId: async (deviceId, key) => ctx.endpointId(deviceId, key),
       onStop: (fn) => void this.#stopHooks.push(fn),
+      actions: { register: (name, description, handler) => ctx.registerAction(name, description, handler) },
     };
     await this.#definition.setup(pluginCtx);
   }

@@ -7,6 +7,7 @@ export type ParentMessage =
   | { type: 'invoke'; id: number; deviceId: string; endpointId: number; capability: string; command: string; params: Record<string, unknown> }
   | { type: 'response'; id: number; ok: true; value?: unknown }
   | { type: 'response'; id: number; ok: false; error: string }
+  | { type: 'action'; id: number; name: string; params: Record<string, unknown> }
   | { type: 'stop' };
 
 export type ChildMessage =
@@ -23,6 +24,9 @@ export type ChildMessage =
   | { type: 'handle'; deviceId: string; endpointId: number; capability: string; commands: string[] }
   | { type: 'invokeResult'; id: number; ok: true }
   | { type: 'invokeResult'; id: number; ok: false; error: string }
+  | { type: 'registerAction'; name: string; description: string }
+  | { type: 'actionResult'; id: number; ok: true; value: unknown }
+  | { type: 'actionResult'; id: number; ok: false; error: string }
   | { type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string; data?: Record<string, unknown> }
   | { type: 'stopped' };
 

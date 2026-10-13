@@ -85,6 +85,7 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
         port: config.matter.bridge.port,
         passcode: config.matter.bridge.passcode,
         discriminator: config.matter.bridge.discriminator,
+        networkInterface: config.matter.networkInterface,
       }),
     );
   }
