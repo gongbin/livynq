@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultExposure, DeviceTypes, type Device } from '@livynq/model';
-import { servicesFor } from '@livynq/exporter-homekit';
+import { accessoriesFor, servicesFor } from '@livynq/exporter-homekit';
 
 function device(endpoints: Device['endpoints']): Device {
   return {
@@ -43,4 +43,20 @@ test('characteristic reads and writes convert units', () => {
   const [contact] = servicesFor(device([{ id: 1, deviceType: DeviceTypes.ContactSensor.id, capabilities: ['booleanState'] }]));
   assert.equal(contact!.characteristics[0]!.read({ booleanState: { stateValue: true } }), 0, 'closed = CONTACT_DETECTED');
   assert.equal(contact!.characteristics[0]!.read({ booleanState: { stateValue: false } }), 1);
+});
+
+test('multi-channel devices are split into one accessory per channel; sensors stay on the main one', () => {
+  const d = device([
+    { id: 1, name: 'Left', deviceType: DeviceTypes.OnOffSwitch.id, capabilities: ['onOff'] },
+    { id: 2, name: 'Right', deviceType: DeviceTypes.OnOffSwitch.id, capabilities: ['onOff'] },
+    { id: 3, name: 'Power', deviceType: DeviceTypes.PowerSensor.id, capabilities: ['electricalPowerMeasurement'] },
+    { id: 4, name: 'Temp', deviceType: DeviceTypes.TemperatureSensor.id, capabilities: ['temperatureMeasurement'] },
+  ]);
+  const accessories = accessoriesFor(d).map((a) => [a.key, a.name, a.services.map((s) => s.service)]);
+  assert.deepEqual(accessories, [
+    ['test:x', 'X Left', ['Switch', 'TemperatureSensor']],
+    ['test:x#2', 'X Right', ['Switch']],
+  ]);
+  const single = accessoriesFor(device([{ id: 1, deviceType: DeviceTypes.OnOffSwitch.id, capabilities: ['onOff'] }]));
+  assert.deepEqual(single.map((a) => a.key), ['test:x'], 'single-channel devices keep their accessory key');
 });

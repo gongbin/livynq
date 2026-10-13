@@ -164,3 +164,30 @@ function onBinding(): CharacteristicBinding {
     write: { commands: ({ On }) => [{ capability: 'onOff', command: On ? 'on' : 'off' }] },
   };
 }
+
+export interface AccessoryPlan {
+  /** Stable key: the device id, or "<device id>#<endpoint>" for split channels. Also seeds the HAP UUID. */
+  key: string;
+  name: string;
+  services: ServicePlan[];
+}
+
+const CONTROLLABLE = new Set(['Lightbulb', 'Outlet', 'Switch']);
+
+/**
+ * Multi-channel devices (2-gang switches, power strips) get one accessory per channel so each
+ * can live in its own room / scene in Apple Home. The first channel stays on the device's own
+ * accessory (keeping its UUID stable), together with any sensors and the battery.
+ */
+export function accessoriesFor(device: Device): AccessoryPlan[] {
+  const services = servicesFor(device);
+  if (!services.length) return [];
+  const controllable = services.filter((s) => CONTROLLABLE.has(s.service));
+  if (controllable.length <= 1) return [{ key: device.id, name: device.name, services }];
+  const [first, ...rest] = controllable;
+  const main = services.filter((s) => !rest.includes(s));
+  return [
+    { key: device.id, name: first!.name ? `${device.name} ${first!.name}` : device.name, services: main.map((s) => (s === first ? { ...s, name: undefined } : s)) },
+    ...rest.map((s) => ({ key: `${device.id}#${s.endpointId}`, name: `${device.name} ${s.name ?? s.endpointId}`, services: [{ ...s, name: undefined }] })),
+  ];
+}

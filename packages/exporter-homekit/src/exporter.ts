@@ -5,7 +5,7 @@ import hap from 'hap-nodejs';
 import type { Accessory as HapAccessory, Characteristic as HapCharacteristic, CharacteristicValue, HAPStatus, Service as HapService } from 'hap-nodejs';
 import { LivynqError, type Exporter, type Home, type Logger } from '@livynq/core';
 import type { Device, DeviceId, HomeKitBridgeInfo } from '@livynq/model';
-import { servicesFor, type CharacteristicBinding, type ServicePlan } from './mapping.ts';
+import { accessoriesFor, type AccessoryPlan, type CharacteristicBinding, type ServicePlan } from './mapping.ts';
 
 const { Accessory, Bridge, Characteristic, HapStatusError, Service, uuid, HAPStorage } = hap;
 
@@ -13,17 +13,17 @@ const { Accessory, Bridge, Characteristic, HapStatusError, Service, uuid, HAPSto
 const COMMUNICATION_FAILURE = -70402 as HAPStatus;
 const CATEGORY_BRIDGE = 2;
 
-/** HAP limit is 150 accessories per bridge including the bridge itself. */
-const MAX_BRIDGED = 149;
-
 export interface HomeKitExporterOptions {
   name: string;
+  /** Port of the first bridge; additional bridges use the following ports. */
   port: number;
-  /** Directory for the bridge identity and HAP-NodeJS pairing/ID caches. Must be backed up. */
+  /** Directory for bridge identities, accessory→bridge assignments and HAP-NodeJS caches. Must be backed up. */
   storagePath: string;
   pincode?: string;
   bind?: string[];
   firmwareRevision?: string;
+  /** Accessories per bridge before another bridge is created (HAP maximum and default: 149). */
+  maxAccessoriesPerBridge?: number;
 }
 
 interface BridgeIdentity {
@@ -32,7 +32,19 @@ interface BridgeIdentity {
   setupID: string;
 }
 
+interface Slot {
+  index: number;
+  identity: BridgeIdentity;
+  bridge: InstanceType<typeof Bridge>;
+  port: number;
+  paired: boolean;
+  published: boolean;
+  keys: Set<string>;
+}
+
 interface Exposed {
+  deviceId: DeviceId;
+  slot: Slot;
   accessory: HapAccessory;
   /** endpointId -> bindings to refresh when that endpoint changes */
   bindings: Map<number, { characteristic: HapCharacteristic; binding: CharacteristicBinding }[]>;
@@ -40,24 +52,32 @@ interface Exposed {
 }
 
 /**
- * Exposes Livynq devices to Apple Home through a HAP bridge.
- * Accessory UUIDs derive from device ids, and HAP-NodeJS persists AID/IID assignments per UUID
- * in `storagePath`, so Apple Home rooms, scenes and automations survive restarts and re-adds.
+ * Exposes Livynq devices to Apple Home through HAP bridges.
+ * - Accessory UUIDs derive from device ids; HAP-NodeJS persists AID/IID per UUID and never purges
+ *   them, so Apple Home rooms, scenes and automations survive restarts, hiding and re-adding.
+ * - Bridges hold up to 149 accessories; more bridges are created on demand. Which bridge an
+ *   accessory lives on is persisted and never changes (moving it would look like a new accessory).
+ * - Multi-channel devices are split into one accessory per channel.
  */
 export class HomeKitExporter implements Exporter {
   readonly id = 'homekit';
   readonly #options: HomeKitExporterOptions;
   #home!: Home;
   #log!: Logger;
-  #bridge: InstanceType<typeof Bridge> | undefined;
-  #identity!: BridgeIdentity;
-  readonly #exposed = new Map<DeviceId, Exposed>();
+  readonly #slots: Slot[] = [];
+  #assignments: Record<string, number> = {};
+  readonly #exposed = new Map<string, Exposed>();
+  readonly #byDevice = new Map<DeviceId, Set<string>>();
   readonly #offs: (() => void)[] = [];
   readonly #pending = new Map<string, { timer: NodeJS.Timeout | undefined; values: Record<string, string | number | boolean>; resolvers: { resolve: () => void; reject: (e: unknown) => void }[] }>();
-  #paired = false;
+  #started = false;
 
   constructor(options: HomeKitExporterOptions) {
     this.#options = options;
+  }
+
+  get #max(): number {
+    return Math.min(149, this.#options.maxAccessoriesPerBridge ?? 149);
   }
 
   async start(home: Home): Promise<void> {
@@ -65,9 +85,64 @@ export class HomeKitExporter implements Exporter {
     this.#log = home.log.child({ exporter: 'homekit' });
     mkdirSync(this.#options.storagePath, { recursive: true, mode: 0o700 });
     setHapStoragePath(this.#options.storagePath);
-    this.#identity = this.#loadIdentity();
+    const assignmentsFile = join(this.#options.storagePath, 'assignments.json');
+    this.#assignments = existsSync(assignmentsFile) ? (JSON.parse(readFileSync(assignmentsFile, 'utf8')) as Record<string, number>) : {};
+    // Recreate every bridge that ever existed so their pairings stay alive, even if empty for now.
+    const highest = Math.max(0, ...Object.values(this.#assignments));
+    for (let i = 0; i <= highest; i++) this.#slot(i);
 
-    const bridge = new Bridge(this.#options.name, uuid.generate(`livynq:bridge:${this.#identity.username}`));
+    // Publish persisted devices right away; adapters fill in state as they come up.
+    for (const device of home.registry.listDevices()) this.#sync(device, true);
+    this.#offs.push(
+      home.bus.on('device.added', (d) => this.#sync(d)),
+      home.bus.on('device.updated', (d) => this.#sync(d)),
+      home.bus.on('device.removed', ({ id }) => this.#removeDevice(id)),
+      home.bus.on('state', (c) => this.#refresh(c.deviceId, c.endpointId)),
+      home.bus.on('availability', ({ deviceId }) => this.#refreshAll(deviceId)),
+    );
+    this.#started = true;
+    for (const slot of this.#slots) await this.#publish(slot);
+  }
+
+  async stop(): Promise<void> {
+    this.#started = false;
+    for (const off of this.#offs.splice(0)) off();
+    for (const p of this.#pending.values()) clearTimeout(p.timer);
+    for (const slot of this.#slots) if (slot.published) await slot.bridge.unpublish();
+    this.#slots.length = 0;
+  }
+
+  bridges(): HomeKitBridgeInfo[] {
+    return this.#slots.map((slot) => ({
+      id: slot.index === 0 ? 'main' : `bridge-${slot.index + 1}`,
+      name: this.#bridgeName(slot.index),
+      pincode: slot.identity.pincode,
+      setupURI: slot.bridge.setupURI(),
+      port: slot.port,
+      paired: slot.paired,
+      accessoryCount: slot.keys.size,
+    }));
+  }
+
+  /** HAP accessory ids per accessory key: diagnostics, and the stability guarantee tests rely on. */
+  accessoryIds(): Record<string, number | undefined> {
+    return Object.fromEntries([...this.#exposed].map(([key, e]) => [key, e.accessory.aid ?? undefined]));
+  }
+
+  /** Accessory key → bridge index. */
+  assignments(): Record<string, number> {
+    return { ...this.#assignments };
+  }
+
+  #bridgeName(index: number): string {
+    return index === 0 ? this.#options.name : `${this.#options.name} ${index + 1}`;
+  }
+
+  #slot(index: number): Slot {
+    const existing = this.#slots[index];
+    if (existing) return existing;
+    const identity = this.#loadIdentity(index);
+    const bridge = new Bridge(this.#bridgeName(index), uuid.generate(`livynq:bridge:${identity.username}`));
     // Keep AIDs/IIDs of accessories that are temporarily gone (hidden, adapter down, removed) so they
     // come back with the same ids and Apple Home keeps their rooms, scenes and automations.
     bridge.shouldPurgeUnusedIDs = false;
@@ -75,146 +150,141 @@ export class HomeKitExporter implements Exporter {
       .getService(Service.AccessoryInformation)!
       .setCharacteristic(Characteristic.Manufacturer, 'Livynq')
       .setCharacteristic(Characteristic.Model, 'Livynq Bridge')
-      .setCharacteristic(Characteristic.SerialNumber, this.#identity.username)
+      .setCharacteristic(Characteristic.SerialNumber, identity.username)
       .setCharacteristic(Characteristic.FirmwareRevision, this.#options.firmwareRevision ?? '0.1.0');
+    const slot: Slot = { index, identity, bridge, port: this.#options.port + index, paired: false, published: false, keys: new Set() };
     bridge.on('paired', () => {
-      this.#paired = true;
-      this.#log.info('paired with Apple Home');
+      slot.paired = true;
+      this.#log.info({ bridge: this.#bridgeName(index) }, 'paired with Apple Home');
     });
     bridge.on('unpaired', () => {
-      this.#paired = false;
-      this.#log.info('unpaired from Apple Home');
+      slot.paired = false;
+      this.#log.info({ bridge: this.#bridgeName(index) }, 'unpaired from Apple Home');
     });
-    this.#bridge = bridge;
+    this.#slots[index] = slot;
+    if (this.#started) void this.#publish(slot);
+    return slot;
+  }
 
-    // Publish persisted devices right away; adapters fill in state as they come up.
-    for (const device of home.registry.listDevices()) this.#sync(device, true);
-    this.#offs.push(
-      home.bus.on('device.added', (d) => this.#sync(d)),
-      home.bus.on('device.updated', (d) => this.#sync(d)),
-      home.bus.on('device.removed', ({ id }) => this.#remove(id)),
-      home.bus.on('state', (c) => this.#refresh(c.deviceId, c.endpointId)),
-      home.bus.on('availability', ({ deviceId }) => this.#refreshAll(deviceId)),
-    );
-
-    await bridge.publish({
-      username: this.#identity.username,
-      pincode: this.#identity.pincode,
-      setupID: this.#identity.setupID,
-      port: this.#options.port,
+  async #publish(slot: Slot): Promise<void> {
+    if (slot.published) return;
+    slot.published = true;
+    await slot.bridge.publish({
+      username: slot.identity.username,
+      pincode: slot.identity.pincode,
+      setupID: slot.identity.setupID,
+      port: slot.port,
       category: CATEGORY_BRIDGE,
       bind: this.#options.bind,
       advertiser: 'ciao' as never,
     });
-    this.#paired = (bridge._accessoryInfo?.listPairings().length ?? 0) > 0;
-    this.#log.info({ port: this.#options.port, pincode: this.#identity.pincode, accessories: this.#exposed.size, paired: this.#paired }, 'HomeKit bridge published');
+    slot.paired = (slot.bridge._accessoryInfo?.listPairings().length ?? 0) > 0;
+    this.#log.info({ bridge: this.#bridgeName(slot.index), port: slot.port, pincode: slot.identity.pincode, accessories: slot.keys.size, paired: slot.paired }, 'HomeKit bridge published');
   }
 
-  async stop(): Promise<void> {
-    for (const off of this.#offs.splice(0)) off();
-    for (const p of this.#pending.values()) clearTimeout(p.timer);
-    await this.#bridge?.unpublish();
-    this.#bridge = undefined;
-  }
-
-  bridges(): HomeKitBridgeInfo[] {
-    if (!this.#bridge) return [];
-    return [
-      {
-        id: 'main',
-        name: this.#options.name,
-        pincode: this.#identity.pincode,
-        setupURI: this.#bridge.setupURI(),
-        port: this.#options.port,
-        paired: this.#paired,
-        accessoryCount: this.#exposed.size,
-      },
-    ];
-  }
-
-  /** HAP accessory ids per device: diagnostics, and the stability guarantee tests rely on. */
-  accessoryIds(): Record<DeviceId, number | undefined> {
-    return Object.fromEntries([...this.#exposed].map(([id, e]) => [id, e.accessory.aid ?? undefined]));
-  }
-
-  #loadIdentity(): BridgeIdentity {
-    const file = join(this.#options.storagePath, 'bridge.json');
+  #loadIdentity(index: number): BridgeIdentity {
+    const file = join(this.#options.storagePath, index === 0 ? 'bridge.json' : `bridge-${index + 1}.json`);
     if (existsSync(file)) {
       const stored = JSON.parse(readFileSync(file, 'utf8')) as BridgeIdentity;
-      return { ...stored, pincode: this.#options.pincode ?? stored.pincode };
+      return { ...stored, pincode: index === 0 ? (this.#options.pincode ?? stored.pincode) : stored.pincode };
     }
     const identity: BridgeIdentity = {
       username: [...randomBytes(6)].map((b, i) => (i === 0 ? (b & 0xfc) | 0x02 : b).toString(16).padStart(2, '0').toUpperCase()).join(':'),
-      pincode: this.#options.pincode ?? generatePincode(),
+      pincode: index === 0 && this.#options.pincode ? this.#options.pincode : generatePincode(),
       setupID: [...randomBytes(4)].map((b) => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[b % 36]).join(''),
     };
     writeFileSync(file, JSON.stringify(identity, null, 2), { mode: 0o600 });
     return identity;
   }
 
+  /** Persistent bridge for an accessory: its previous bridge, else the first with room. */
+  #slotFor(key: string): Slot {
+    const assigned = this.#assignments[key];
+    if (assigned !== undefined) {
+      const slot = this.#slot(assigned);
+      if (slot.keys.size < this.#max || slot.keys.has(key)) return slot;
+      this.#log.warn({ accessory: key }, 'its bridge is full; moving it to another bridge (Apple Home will treat it as new)');
+    }
+    let index = 0;
+    while (this.#slot(index).keys.size >= this.#max) index++;
+    this.#assignments[key] = index;
+    writeFileSync(join(this.#options.storagePath, 'assignments.json'), JSON.stringify(this.#assignments, null, 2), { mode: 0o600 });
+    return this.#slot(index);
+  }
+
   // ---------------------------------------------------------------- accessories
 
   #sync(device: Device, initial = false): void {
-    const bridge = this.#bridge;
-    if (!bridge) return;
-    const plans = device.exposure.homekit ? servicesFor(device) : [];
-    if (!plans.length) return this.#remove(device.id);
+    const plans = device.exposure.homekit ? accessoriesFor(device) : [];
+    const wanted = new Set(plans.map((p) => p.key));
+    for (const key of this.#byDevice.get(device.id) ?? []) if (!wanted.has(key)) this.#remove(key);
+    for (const plan of plans) this.#syncAccessory(device, plan, initial);
+  }
 
-    const signature = JSON.stringify(plans.map((p) => [p.key, p.service, p.characteristics.map((c) => c.name)]));
-    const existing = this.#exposed.get(device.id);
+  #syncAccessory(device: Device, plan: AccessoryPlan, initial: boolean): void {
+    const signature = JSON.stringify(plan.services.map((p) => [p.key, p.service, p.characteristics.map((c) => c.name)]));
+    const existing = this.#exposed.get(plan.key);
     if (existing && existing.signature === signature) {
-      existing.accessory.getService(Service.AccessoryInformation)?.updateCharacteristic(Characteristic.Name, device.name);
+      existing.accessory.getService(Service.AccessoryInformation)?.updateCharacteristic(Characteristic.Name, plan.name);
       return this.#refreshAll(device.id);
     }
-    if (existing) this.#remove(device.id);
-    if (this.#exposed.size >= MAX_BRIDGED) {
-      this.#log.warn({ device: device.id }, `bridge is full (${MAX_BRIDGED} accessories); device not exposed`);
-      return;
-    }
+    if (existing) this.#remove(plan.key);
 
-    const accessory = new Accessory(device.name, uuid.generate(`livynq:device:${device.id}`));
+    const accessory = new Accessory(plan.name, uuid.generate(`livynq:device:${plan.key}`));
     accessory
       .getService(Service.AccessoryInformation)!
       .setCharacteristic(Characteristic.Manufacturer, device.info.manufacturer || 'Livynq')
       .setCharacteristic(Characteristic.Model, device.info.model || device.protocol)
-      .setCharacteristic(Characteristic.SerialNumber, device.info.serial || device.id)
+      .setCharacteristic(Characteristic.SerialNumber, device.info.serial || plan.key)
       .setCharacteristic(Characteristic.FirmwareRevision, sanitizeVersion(device.info.firmware));
 
     const bindings = new Map<number, { characteristic: HapCharacteristic; binding: CharacteristicBinding }[]>();
-    for (const plan of plans) {
-      const service = this.#createService(device, plan, accessory);
-      for (const binding of plan.characteristics) {
-        const characteristic = service.getCharacteristic((Characteristic as unknown as Record<string, never>)[binding.name]!);
+    for (const service of plan.services) {
+      const hapService = this.#createService(plan, service, accessory);
+      for (const binding of service.characteristics) {
+        const characteristic = hapService.getCharacteristic((Characteristic as unknown as Record<string, never>)[binding.name]!);
         if (binding.props) characteristic.setProps(binding.props);
-        characteristic.onGet(() => this.#read(device.id, plan.endpointId, binding));
+        characteristic.onGet(() => this.#read(device.id, service.endpointId, binding));
         if (binding.write) {
           const write = binding.write;
-          characteristic.onSet((value) => this.#write(device.id, plan.endpointId, binding.name, value, write));
+          characteristic.onSet((value) => this.#write(device.id, service.endpointId, binding.name, value, write));
         }
-        const list = bindings.get(plan.endpointId) ?? [];
+        const list = bindings.get(service.endpointId) ?? [];
         list.push({ characteristic, binding });
-        bindings.set(plan.endpointId, list);
+        bindings.set(service.endpointId, list);
       }
     }
-    this.#exposed.set(device.id, { accessory, bindings, signature });
-    bridge.addBridgedAccessory(accessory, initial);
+    const slot = this.#slotFor(plan.key);
+    slot.keys.add(plan.key);
+    this.#exposed.set(plan.key, { deviceId: device.id, slot, accessory, bindings, signature });
+    let keys = this.#byDevice.get(device.id);
+    if (!keys) this.#byDevice.set(device.id, (keys = new Set()));
+    keys.add(plan.key);
+    slot.bridge.addBridgedAccessory(accessory, initial);
     this.#refreshAll(device.id);
   }
 
-  #createService(device: Device, plan: ServicePlan, accessory: HapAccessory): HapService {
+  #createService(accessory: AccessoryPlan, plan: ServicePlan, hapAccessory: HapAccessory): HapService {
     const ServiceType = (Service as unknown as Record<string, typeof HapService>)[plan.service]!;
-    const name = plan.name ? `${device.name} ${plan.name}` : device.name;
-    const service = accessory.addService(ServiceType, name, plan.key);
+    const name = plan.name ? `${accessory.name} ${plan.name}` : accessory.name;
+    const service = hapAccessory.addService(ServiceType, name, plan.key);
     service.addOptionalCharacteristic(Characteristic.ConfiguredName);
     service.setCharacteristic(Characteristic.ConfiguredName, name);
     return service;
   }
 
-  #remove(id: DeviceId): void {
-    const exposed = this.#exposed.get(id);
+  #remove(key: string): void {
+    const exposed = this.#exposed.get(key);
     if (!exposed) return;
-    this.#exposed.delete(id);
-    this.#bridge?.removeBridgedAccessory(exposed.accessory);
+    this.#exposed.delete(key);
+    this.#byDevice.get(exposed.deviceId)?.delete(key);
+    exposed.slot.keys.delete(key);
+    exposed.slot.bridge.removeBridgedAccessory(exposed.accessory);
+  }
+
+  #removeDevice(id: DeviceId): void {
+    for (const key of [...(this.#byDevice.get(id) ?? [])]) this.#remove(key);
+    this.#byDevice.delete(id);
   }
 
   #read(deviceId: DeviceId, endpointId: number, binding: CharacteristicBinding): CharacteristicValue {
@@ -224,17 +294,20 @@ export class HomeKitExporter implements Exporter {
   }
 
   #refresh(deviceId: DeviceId, endpointId: number): void {
-    const exposed = this.#exposed.get(deviceId);
     const device = this.#home.registry.getDevice(deviceId);
-    if (!exposed || !device) return;
+    if (!device) return;
     const state = this.#home.registry.getState(deviceId)[endpointId] ?? {};
-    for (const { characteristic, binding } of exposed.bindings.get(endpointId) ?? []) {
-      characteristic.updateValue(device.availability === 'offline' ? new HapStatusError(COMMUNICATION_FAILURE) : binding.read(state));
+    for (const key of this.#byDevice.get(deviceId) ?? []) {
+      for (const { characteristic, binding } of this.#exposed.get(key)?.bindings.get(endpointId) ?? []) {
+        characteristic.updateValue(device.availability === 'offline' ? new HapStatusError(COMMUNICATION_FAILURE) : binding.read(state));
+      }
     }
   }
 
   #refreshAll(deviceId: DeviceId): void {
-    for (const endpointId of this.#exposed.get(deviceId)?.bindings.keys() ?? []) this.#refresh(deviceId, endpointId);
+    const endpoints = new Set<number>();
+    for (const key of this.#byDevice.get(deviceId) ?? []) for (const ep of this.#exposed.get(key)?.bindings.keys() ?? []) endpoints.add(ep);
+    for (const ep of endpoints) this.#refresh(deviceId, ep);
   }
 
   /**
