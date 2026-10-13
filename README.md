@@ -50,6 +50,7 @@ CLI 与运行中的实例通信；本机自动使用 `~/.livynq/secrets/cli.toke
 
 ```bash
 pnpm livynq status
+pnpm livynq doctor          # 检查安装：配置、权限、端口、网络、串口、插件
 pnpm livynq devices list --room 卧室
 pnpm livynq devices get light.living_room_ceiling --json
 pnpm livynq call light.living_room_ceiling set_brightness --brightness 40

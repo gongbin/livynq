@@ -26,6 +26,7 @@ Server
       --no-homekit              Do not start the HomeKit bridge
       --matter                  Start the Matter bridge (Google / Alexa / SmartThings / Apple)
   login-url                     Print a web UI login link (local machine only)
+  doctor                        Check the installation (config, permissions, ports, network, plugins)
 
 Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for remote)
   status                        Hub summary
@@ -140,6 +141,22 @@ async function run(): Promise<void> {
       };
       process.once('SIGINT', shutdown);
       process.once('SIGTERM', shutdown);
+      return;
+    }
+    case 'doctor': {
+      const { runDoctor, formatChecks } = await import('./cli/doctor.ts');
+      const config = loadConfig(overrides());
+      let hub: RemoteClient | undefined;
+      try {
+        hub = client();
+        await hub.request('GET', '/api/v1/auth/me');
+      } catch {
+        hub = undefined;
+      }
+      const otherHub = !hub && (await fetch(`http://127.0.0.1:${config.server.port}/api/v1/health`).then((r) => r.ok, () => false));
+      const checks = await runDoctor(config, { hub: hub && { get: (path) => hub!.request('GET', path) }, otherHub });
+      print(formatChecks(checks), checks);
+      if (checks.some((c) => c.status === 'fail')) process.exitCode = 1;
       return;
     }
     case 'login-url': {

@@ -89,6 +89,7 @@ UNIT
   sleep 3
   say "service started — logs: journalctl -u livynq -f"
   say "login link: sudo -u livynq LIVYNQ_DATA_DIR=${DATA} livynq login-url"
+  say "health check: sudo -u livynq LIVYNQ_DATA_DIR=${DATA} livynq doctor"
 elif [ "$os" = macos ]; then
   DATA="${LIVYNQ_DATA:-$HOME/.livynq}"
   plist="$HOME/Library/LaunchAgents/dev.livynq.hub.plist"
@@ -111,6 +112,7 @@ PLIST
   sleep 3
   say "service started — logs: tail -f ${DATA}/livynq.log"
   say "login link: livynq login-url"
+  say "health check: livynq doctor"
 else
   say "no systemd found; start manually: LIVYNQ_DATA_DIR=${DATA} ${PREFIX}/livynq start"
 fi
