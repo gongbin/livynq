@@ -7,13 +7,14 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
 import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type TokenInfo, type TokenScope } from '@livynq/core';
-import type { Availability, CommandBody, Device, ExposurePolicy, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
+import type { Availability, CommandBody, Device, ExposurePolicy, Level, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
 import { registerUiRoutes, wallSettings } from './routes/ui.ts';
 import { registerOnboardingRoutes } from './routes/onboarding.ts';
+import { registerSpaceRoutes } from './routes/spaces.ts';
 import type { LivynqConfig } from './config.ts';
 import type { PluginDefinition } from '@livynq/sdk';
 import type { PluginRuntimeInfo } from '@livynq/plugin-host';
@@ -81,7 +82,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const header = req.headers.authorization;
     const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
     // Browsers cannot set headers on WebSocket connections or CSS images, so those may pass ?token=.
-    const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/ui/wall-background') ? (req.query as Record<string, string | undefined>).token : undefined;
+    const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/ui/wall-background') || /^\/api\/v1\/levels\/[^/]+\/background/.test(req.url) ? (req.query as Record<string, string | undefined>).token : undefined;
     const info = home.tokens.verify(bearer ?? query);
     if (!info) throw new LivynqError('UNAUTHORIZED', 'Missing or invalid access token', 'Pass "Authorization: Bearer lvq_..."');
     return info;
@@ -161,7 +162,8 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     return reply.status(201).send(home.registry.createRoom({ name: body.name ?? '', aliases: body.aliases }));
   });
   app.patch('/api/v1/rooms/:id', admin, async (req) => {
-    const body = (req.body ?? {}) as { name?: string; aliases?: string[]; sortOrder?: number };
+    const body = (req.body ?? {}) as { name?: string; aliases?: string[]; sortOrder?: number; levelId?: string | null; polygon?: [number, number][] | null; color?: string | null };
+    if (body.levelId) home.spaces.getLevel(body.levelId);
     return home.registry.updateRoom((req.params as { id: string }).id, body);
   });
   app.delete('/api/v1/rooms/:id', admin, async (req, reply) => {
@@ -231,6 +233,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerAutomationRoutes(app, home, { read, control, admin, source });
   registerImportRoutes(app, home, { admin, source });
   registerUiRoutes(app, home, { read, admin });
+  registerSpaceRoutes(app, home, { read, admin });
   registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, bundledPlugins: options.bundledPlugins });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
@@ -266,6 +269,8 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
           return send({ type: 'rooms', rooms: payload as Room[] });
         case 'confirmation':
           return send({ type: 'confirmation', confirmation: payload as Confirmation });
+        case 'levels.changed':
+          return send({ type: 'levels', levels: payload as Level[] });
         case 'settings':
           if ((payload as { key: string }).key === 'ui.wall') send({ type: 'settings', wall: wallSettings(home) });
           return;

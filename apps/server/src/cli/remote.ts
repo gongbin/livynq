@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CommandBody, ConfirmationDTO, DeviceDTO, Room, SystemInfo } from '@livynq/model';
-import type { HistoryPoint } from '@livynq/core';
+import type { FloorPlan, HistoryPoint } from '@livynq/core';
 import type { CommandOutcome, DeviceFilter, HistoryQuery, HomeApi } from '@livynq/agent';
 import type { AutomationInfo, Trace } from '@livynq/automation';
 
@@ -91,6 +91,10 @@ export class RemoteClient implements HomeApi {
 
   confirmation(id: string) {
     return this.request<ConfirmationDTO>('GET', `/api/v1/confirmations/${encodeURIComponent(id)}`);
+  }
+
+  floorplan() {
+    return this.request<FloorPlan & { adjacency: Record<string, string[]> }>('GET', '/api/v1/floorplan');
   }
 
   automations() {

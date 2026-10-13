@@ -135,6 +135,23 @@ const migrations: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  `
+  ALTER TABLE rooms ADD COLUMN level_id TEXT;
+  ALTER TABLE rooms ADD COLUMN polygon TEXT;
+  ALTER TABLE rooms ADD COLUMN color TEXT;
+  CREATE TABLE levels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    elevation REAL NOT NULL DEFAULT 0,
+    background TEXT
+  );
+  CREATE TABLE scene_documents (
+    level_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export class Storage {

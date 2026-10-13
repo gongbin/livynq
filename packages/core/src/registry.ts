@@ -12,6 +12,7 @@ import {
   type DeviceId,
   type DeviceState,
   type ExposurePolicy,
+  type Placement,
   type Room,
   type StateChange,
 } from '@livynq/model';
@@ -31,6 +32,8 @@ export interface DevicePatch {
   roomId?: string | null;
   aliases?: string[];
   exposure?: Partial<ExposurePolicy>;
+  /** Floor plan position (null removes it). */
+  placement?: Placement | null;
   /** Restores the "renamed by user" flag (used when undoing imports). */
   nameByUser?: boolean;
 }
@@ -72,7 +75,15 @@ export class Registry {
       this.#writeState(String(row.device_id), Number(row.endpoint_id), String(row.capability), String(row.attribute), JSON.parse(String(row.value)));
     }
     for (const row of this.#storage.sql('SELECT * FROM rooms ORDER BY sort_order, name').all() as Record<string, string | number>[]) {
-      this.#rooms.set(String(row.id), { id: String(row.id), name: String(row.name), aliases: JSON.parse(String(row.aliases)), sortOrder: Number(row.sort_order) });
+      this.#rooms.set(String(row.id), {
+        id: String(row.id),
+        name: String(row.name),
+        aliases: JSON.parse(String(row.aliases)),
+        sortOrder: Number(row.sort_order),
+        levelId: row.level_id === null || row.level_id === undefined ? null : String(row.level_id),
+        polygon: row.polygon ? (JSON.parse(String(row.polygon)) as [number, number][]) : null,
+        color: row.color === null || row.color === undefined ? null : String(row.color),
+      });
     }
     for (const row of this.#storage.sql('SELECT * FROM entities').all() as Record<string, string | number>[]) {
       const device = this.#devices.get(String(row.device_id));
@@ -138,6 +149,7 @@ export class Registry {
       nameByUser: previous?.nameByUser ?? false,
       roomId: previous ? previous.roomId : this.#roomIdForSuggestion(def.suggestedRoom),
       aliases: previous?.aliases ?? [],
+      placement: previous?.placement ?? null,
       availability: previous?.availability ?? 'unknown',
       exposure: previous?.exposure ?? defaultExposure(),
       createdAt: previous?.createdAt ?? now,
@@ -164,6 +176,10 @@ export class Registry {
       device.roomId = patch.roomId;
     }
     if (patch.nameByUser !== undefined) device.nameByUser = patch.nameByUser;
+    if (patch.placement !== undefined) {
+      if (patch.placement && (!Number.isFinite(patch.placement.x) || !Number.isFinite(patch.placement.y))) throw new LivynqError('INVALID_PARAMS', 'placement needs numeric x and y');
+      device.placement = patch.placement;
+    }
     if (patch.aliases !== undefined) device.aliases = patch.aliases.map((a) => a.trim()).filter(Boolean);
     if (patch.exposure !== undefined) device.exposure = { ...device.exposure, ...patch.exposure };
     device.updatedAt = Date.now();
@@ -361,12 +377,13 @@ export class Registry {
     const name = input.name.trim();
     if (!name) throw new LivynqError('INVALID_PARAMS', 'Room name must not be empty');
     if (this.findRoom(name)) throw new LivynqError('CONFLICT', `Room already exists: ${name}`);
-    const room: Room = { id: randomUUID(), name, aliases: input.aliases ?? [], sortOrder: input.sortOrder ?? this.#rooms.size };
+    const room: Room = { id: randomUUID(), name, aliases: input.aliases ?? [], sortOrder: input.sortOrder ?? this.#rooms.size, levelId: null, polygon: null, color: null };
     this.#saveRoom(room);
     return room;
   }
 
-  updateRoom(id: string, patch: { name?: string; aliases?: string[]; sortOrder?: number }): Room {
+  updateRoom(id: string, patch: { name?: string; aliases?: string[]; sortOrder?: number; levelId?: string | null; polygon?: [number, number][] | null; color?: string | null }): Room {
+    if (patch.polygon) validatePolygon(patch.polygon);
     const room = this.#rooms.get(id);
     if (!room) throw new LivynqError('NOT_FOUND', `Room not found: ${id}`);
     const updated = { ...room, ...patch, name: patch.name?.trim() || room.name };
@@ -386,8 +403,12 @@ export class Registry {
 
   #saveRoom(room: Room): void {
     this.#storage
-      .sql('INSERT INTO rooms (id, name, aliases, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, aliases = excluded.aliases, sort_order = excluded.sort_order')
-      .run(room.id, room.name, JSON.stringify(room.aliases), room.sortOrder);
+      .sql(
+        `INSERT INTO rooms (id, name, aliases, sort_order, level_id, polygon, color) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, aliases = excluded.aliases, sort_order = excluded.sort_order,
+         level_id = excluded.level_id, polygon = excluded.polygon, color = excluded.color`,
+      )
+      .run(room.id, room.name, JSON.stringify(room.aliases), room.sortOrder, room.levelId, room.polygon ? JSON.stringify(room.polygon) : null, room.color);
     this.#rooms.set(room.id, room);
     this.#bus.emit('rooms.changed', this.listRooms());
   }
@@ -405,4 +426,10 @@ function sameDefinition(a: Device, b: Device): boolean {
     JSON.stringify(a.info) === JSON.stringify(b.info) &&
     JSON.stringify(a.endpoints) === JSON.stringify(b.endpoints)
   );
+}
+
+function validatePolygon(polygon: unknown): void {
+  if (!Array.isArray(polygon) || polygon.length < 3 || polygon.length > 200 || !polygon.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && Number.isFinite(n)))) {
+    throw new LivynqError('INVALID_PARAMS', 'polygon must be 3..200 [x, y] points in meters');
+  }
 }

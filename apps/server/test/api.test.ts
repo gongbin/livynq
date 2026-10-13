@@ -162,3 +162,30 @@ test('onboarding: methods, enabling an official plugin at runtime, plugin action
   await app.close();
   await home.stop();
 });
+
+test('floor plan API: levels, outlines, placement, background, scene', async () => {
+  const { app, home, admin, reader, req } = await setup();
+  const level = (await req('POST', '/api/v1/levels', admin, { name: '一楼' })).json();
+  const kitchen = home.registry.findRoom('Kitchen')!;
+  assert.equal((await req('PATCH', `/api/v1/rooms/${kitchen.id}`, admin, { levelId: 'missing' })).statusCode, 404);
+  assert.equal((await req('PATCH', `/api/v1/rooms/${kitchen.id}`, admin, { levelId: level.id, polygon: [[0, 0], [3, 0], [3, 3], [0, 3]] })).statusCode, 200);
+  const placed = (await req('PUT', '/api/v1/devices/demo:coffee-plug/placement', admin, { levelId: level.id, x: 1, y: 1, mount: 'wall' })).json();
+  assert.equal(placed.roomId, kitchen.id);
+  const plan = (await req('GET', '/api/v1/floorplan', reader)).json();
+  assert.equal(plan.levels[0].name, '一楼');
+  assert.deepEqual(plan.placements, [{ deviceId: 'demo:coffee-plug', placement: { levelId: level.id, x: 1, y: 1, mount: 'wall' } }]);
+  assert.equal((await req('PUT', '/api/v1/devices/demo:coffee-plug/placement', reader, null)).statusCode, 403);
+
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+  const bg = await app.inject({ method: 'PUT', url: `/api/v1/levels/${level.id}/background?widthMeters=14`, payload: svg, headers: { authorization: `Bearer ${admin}`, 'content-type': 'image/svg+xml' } });
+  assert.equal(bg.json().background.widthMeters, 14);
+  const img = await app.inject({ method: 'GET', url: `${bg.json().background.url}&token=${reader}` });
+  assert.equal(img.headers['content-type'], 'image/svg+xml');
+
+  assert.equal((await req('PUT', `/api/v1/levels/${level.id}/scene`, admin, { data: { nodes: {} } })).statusCode, 200);
+  assert.deepEqual((await req('GET', `/api/v1/levels/${level.id}/scene`, reader)).json().data, { nodes: {} });
+  assert.equal((await req('DELETE', `/api/v1/levels/${level.id}`, admin)).statusCode, 204);
+  assert.equal(home.registry.requireDevice('demo:coffee-plug').placement, null);
+  await app.close();
+  await home.stop();
+});

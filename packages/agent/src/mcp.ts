@@ -21,6 +21,7 @@ import {
 } from '@livynq/model';
 import type { HomeApi } from './home-api.ts';
 import { describeCommands, endpointForTarget, summarizeDevice } from './describe.ts';
+import { polygonArea } from '@livynq/core';
 
 export interface McpOptions {
   api: HomeApi;
@@ -104,6 +105,14 @@ const readTools: Tool[] = [
 ];
 
 readTools.push(
+  {
+    name: 'get_floorplan',
+    description:
+      'The home as space: floors, rooms (area in m², which rooms share a wall), and where devices are (x/y in meters on the floor). ' +
+      'Use it for requests like "lights in the rooms next to the kitchen" or "the lamp nearest the sofa".',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, title: 'Floor plan' },
+  },
   {
     name: 'list_automations',
     description: 'List automations with enabled state, validity, last trigger time and who created them.',
@@ -252,6 +261,35 @@ export function createMcpServer(options: McpOptions): Server {
         case 'get_confirmation': {
           const c = await api.confirmation(requireStr(args.id, 'id'));
           return json({ id: c.id, status: c.status, summary: c.summary, decidedBy: c.decidedBy, error: c.error });
+        }
+        case 'get_floorplan': {
+          const [plan, devices] = await Promise.all([api.floorplan(), api.devices()]);
+          const shown = visible(devices);
+          const roomName = new Map(plan.rooms.map((r) => [r.id, r.name]));
+          const placed = new Map(plan.placements.map((p) => [p.deviceId, p.placement]));
+          const devicesIn = (roomId: string) =>
+            shown
+              .filter((d) => d.roomId === roomId)
+              .map((d) => {
+                const p = placed.get(d.id);
+                return { name: d.name, entityIds: Object.values(d.entities), ...(p ? { position: [round(p.x), round(p.y)], ...(p.mount ? { mount: p.mount } : {}) } : {}) };
+              });
+          return json({
+            units: 'meters',
+            levels: plan.levels.map((l) => ({
+              name: l.name,
+              elevation: l.elevation,
+              rooms: plan.rooms
+                .filter((r) => r.levelId === l.id)
+                .map((r) => ({
+                  name: r.name,
+                  ...(r.polygon ? { areaM2: round(polygonArea(r.polygon)), outline: r.polygon.map(([x, y]) => [round(x), round(y)]) } : {}),
+                  adjacentTo: (plan.adjacency[r.id] ?? []).map((id) => roomName.get(id)),
+                  devices: devicesIn(r.id),
+                })),
+            })),
+            roomsWithoutFloor: plan.rooms.filter((r) => !r.levelId).map((r) => ({ name: r.name, devices: devicesIn(r.id) })),
+          });
         }
         case 'list_automations':
           return json(
@@ -403,4 +441,8 @@ function requireStr(v: unknown, name: string): string {
   const s = str(v);
   if (!s) throw new ToolError(`${name} is required`);
   return s;
+}
+
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
 }

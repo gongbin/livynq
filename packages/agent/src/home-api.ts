@@ -1,5 +1,5 @@
 import type { CommandBody, ConfirmationDTO, DeviceDTO, Risk, Room, SystemInfo } from '@livynq/model';
-import { LivynqError, toDeviceDTO, type Home, type HistoryPoint } from '@livynq/core';
+import { LivynqError, toDeviceDTO, type FloorPlan, type Home, type HistoryPoint } from '@livynq/core';
 import type { AutomationEngine, AutomationInfo, Trace } from '@livynq/automation';
 
 export interface DeviceFilter {
@@ -31,6 +31,7 @@ export interface HomeApi {
   /** Runs the command, or queues it for human approval when it exceeds the caller's risk limit. */
   command(deviceId: string, endpointId: number, body: CommandBody, source: string, riskLimit: Risk): Promise<CommandOutcome>;
   confirmation(id: string): Promise<ConfirmationDTO>;
+  floorplan(): Promise<FloorPlan & { adjacency: Record<string, string[]> }>;
   automations(): Promise<AutomationInfo[]>;
   automationTraces(id: string): Promise<Trace[]>;
   /** Stores a disabled draft; never overwrites an existing automation. */
@@ -69,6 +70,9 @@ export function createLocalHomeApi(home: Home, version = '0.0.0'): HomeApi {
     },
     async confirmation(id) {
       return home.confirmations.get(id);
+    },
+    async floorplan() {
+      return { ...home.spaces.floorPlan(), adjacency: home.spaces.adjacency() };
     },
     async automations() {
       return engine().list();

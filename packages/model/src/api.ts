@@ -1,5 +1,5 @@
 /** Wire types shared by the server, the web UI, the CLI and the MCP tools. */
-import type { Availability, Device, DeviceState, Room } from './device.ts';
+import type { Availability, Device, DeviceState, Level, Room } from './device.ts';
 
 export type TokenScope = 'read' | 'control' | 'admin';
 
@@ -49,6 +49,7 @@ export type WsServerMessage =
   | { type: 'rooms'; rooms: Room[] }
   | { type: 'confirmation'; confirmation: ConfirmationDTO }
   | { type: 'settings'; wall: WallSettings }
+  | { type: 'levels'; levels: Level[] }
   | { type: 'result'; id: number; ok: true }
   | { type: 'result'; id: number; ok: false; error: ApiErrorBody['error'] };
 

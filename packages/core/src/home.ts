@@ -19,6 +19,7 @@ import { Storage } from './storage.ts';
 import { TokenStore } from './tokens.ts';
 import { Confirmations } from './confirmations.ts';
 import { Settings } from './settings.ts';
+import { Spaces } from './spaces.ts';
 
 export interface HomeOptions {
   /** Data directory; `:memory:` keeps everything in memory (tests). */
@@ -58,6 +59,7 @@ export class Home {
   readonly tokens: TokenStore;
   readonly confirmations: Confirmations;
   readonly settings: Settings;
+  readonly spaces: Spaces;
   readonly startedAt = Date.now();
 
   readonly #adapters = new Map<string, Adapter>();
@@ -80,6 +82,7 @@ export class Home {
     this.tokens = new TokenStore(this.storage);
     this.confirmations = new Confirmations(this);
     this.settings = new Settings(this.storage, this.bus);
+    this.spaces = new Spaces(this.storage, this.bus, this.registry);
   }
 
   get running(): boolean {

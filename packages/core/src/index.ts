@@ -14,3 +14,4 @@ export * from './tar.ts';
 export * from './backup.ts';
 export * from './confirmations.ts';
 export * from './settings.ts';
+export * from './spaces.ts';

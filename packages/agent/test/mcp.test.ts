@@ -31,7 +31,7 @@ test('read-only scope lists read tools and returns compact summaries', async () 
   const home = await demoHome();
   const { client, call } = await connect(home, 'read');
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.deepEqual(tools.sort(), ['get_automation', 'get_device', 'get_history', 'home_overview', 'list_automations', 'list_devices']);
+  assert.deepEqual(tools.sort(), ['get_automation', 'get_device', 'get_floorplan', 'get_history', 'home_overview', 'list_automations', 'list_devices']);
 
   const overview = await call('home_overview');
   assert.equal(overview.json.deviceCount, 11);
@@ -121,5 +121,23 @@ test('high-risk actions are queued for approval; thermostats map on/off to modes
   const ac = await call('get_device', { target: 'Bedroom AC' });
   assert.equal(ac.json.endpoints[0].state.targetTemperatureCelsius, 23);
   assert.equal(ac.json.endpoints[0].state.mode, 'auto');
+  await home.stop();
+});
+
+test('get_floorplan gives agents rooms, areas, adjacency and device positions', async () => {
+  const home = await demoHome();
+  const level = home.spaces.createLevel({ name: 'Ground' });
+  const kitchen = home.registry.findRoom('Kitchen')!;
+  const living = home.registry.findRoom('Living Room')!;
+  home.registry.updateRoom(kitchen.id, { levelId: level.id, polygon: [[0, 0], [4, 0], [4, 3], [0, 3]] });
+  home.registry.updateRoom(living.id, { levelId: level.id, polygon: [[4, 0], [10, 0], [10, 5], [4, 5]] });
+  home.spaces.place('demo:coffee-plug', { levelId: level.id, x: 1, y: 2 });
+  const { call } = await connect(home, 'read');
+  const plan = (await call('get_floorplan')).json;
+  const k = plan.levels[0].rooms.find((r: { name: string }) => r.name === 'Kitchen');
+  assert.equal(k.areaM2, 12);
+  assert.deepEqual(k.adjacentTo, ['Living Room']);
+  assert.deepEqual(k.devices, [{ name: 'Coffee Machine', entityIds: ['switch.coffee_machine'], position: [1, 2] }]);
+  assert.ok(plan.roomsWithoutFloor.some((r: { name: string }) => r.name === 'Bedroom'));
   await home.stop();
 });

@@ -47,6 +47,7 @@ export interface Device extends DeviceDefinition {
   aliases: string[];
   availability: Availability;
   exposure: ExposurePolicy;
+  placement?: Placement | null;
   /** True once a user has renamed the device; adapter names no longer overwrite it. */
   nameByUser: boolean;
   createdAt: number;
@@ -72,6 +73,32 @@ export interface Room {
   name: string;
   aliases: string[];
   sortOrder: number;
+  /** Floor the room is on (floor plan); null until placed. */
+  levelId: string | null;
+  /** Outline on the level, in meters ([x, y] points, clockwise or not). */
+  polygon: [number, number][] | null;
+  color: string | null;
+}
+
+export interface Level {
+  id: string;
+  name: string;
+  sortOrder: number;
+  /** Height of the floor above ground, meters (3D stacking). */
+  elevation: number;
+  /** Optional floor plan image used as a tracing background. */
+  background: { contentType: string; updatedAt: number; url: string; widthMeters: number } | null;
+}
+
+/** Where a device is on the floor plan (meters, level coordinates). User-owned like roomId. */
+export interface Placement {
+  levelId: string;
+  x: number;
+  y: number;
+  /** Height above the floor (3D), meters. */
+  z?: number;
+  rotation?: number;
+  mount?: 'floor' | 'wall' | 'ceiling' | 'furniture';
 }
 
 export const defaultExposure = (): ExposurePolicy => ({ homekit: true, agent: 'visible' });
