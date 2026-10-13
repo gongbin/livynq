@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { defineAdapter, getCapability, type PluginContext, type PluginDevice } from '@livynq/sdk';
 import {
   AGGREGATOR,
@@ -272,7 +273,8 @@ export default createMatterPlugin({
     const environment = Environment.default;
     environment.vars.set('storage.path', storagePath);
     // Hosts with VPN/tunnel interfaces: restrict discovery to the LAN interface (e.g. "eth0", "en0").
-    if (options.networkInterface) environment.vars.set('mdns.networkInterface', options.networkInterface);
+    const networkInterface = options.networkInterface ?? process.env.MATTER_MDNS_NETWORKINTERFACE ?? defaultMatterInterface();
+    if (networkInterface) environment.vars.set('mdns.networkInterface', networkInterface);
     return new CommissioningController({
       environment: { environment, id: 'livynq-controller' },
       autoConnect: false,
@@ -289,3 +291,16 @@ export default createMatterPlugin({
     return { passcode: manual.passcode, shortDiscriminator: manual.shortDiscriminator };
   },
 });
+
+/**
+ * Matter mDNS on every interface makes controllers try VPN/tunnel link-local addresses first
+ * (seen on macOS with utun*). Default to the primary LAN interface unless configured.
+ */
+export function defaultMatterInterface(): string | undefined {
+  const skip = /^(lo|utun|awdl|llw|bridge|docker|veth|br-|virbr|vmnet|tun|tap|wg|zt|tailscale|ham)/i;
+  for (const [name, addrs] of Object.entries(networkInterfaces())) {
+    if (skip.test(name)) continue;
+    if (addrs?.some((a) => a.family === 'IPv4' && !a.internal)) return name;
+  }
+  return undefined;
+}

@@ -85,6 +85,10 @@ export class ProcessPluginAdapter implements Adapter {
     };
   }
 
+  get config(): Record<string, unknown> {
+    return this.#options.config;
+  }
+
   info(): PluginRuntimeInfo {
     return {
       id: this.id,

@@ -95,6 +95,17 @@ export class Home {
     return this;
   }
 
+  /** Stops and unregisters an adapter (plugin disabled or reconfigured); its devices stay, offline. */
+  async removeAdapter(id: string): Promise<void> {
+    const adapter = this.#adapters.get(id);
+    if (!adapter) throw new LivynqError('NOT_FOUND', `Adapter not found: ${id}`);
+    await this.#guard(`stop adapter ${id}`, () => adapter.stop());
+    this.#adapters.delete(id);
+    this.#actions.delete(id);
+    for (const key of [...this.#handlers.keys()]) if (this.#handlers.get(key)?.adapter === id) this.#handlers.delete(key);
+    for (const device of this.registry.listDevices()) if (device.adapter === id) this.registry.setAvailability(device.id, 'offline');
+  }
+
   /** Registers an adapter and, when the home already runs, starts it right away (plugins enabled from the UI). */
   async addAdapter(adapter: Adapter): Promise<void> {
     this.useAdapter(adapter);
@@ -279,12 +290,17 @@ export class Home {
 
   async invokeAction(adapterId: string, name: string, params: Record<string, unknown>, source: string): Promise<unknown> {
     const action = this.#actions.get(adapterId)?.get(name);
-    if (!action) throw new LivynqError('NOT_FOUND', `${adapterId} has no action "${name}"`, `Available: ${this.actions(adapterId).map((a) => a.name).join(', ') || 'none'}`);
+    if (!action) {
+      const status = (this.#adapters.get(adapterId) as { info?: () => { status: string } } | undefined)?.info?.().status;
+      if (status && status !== 'running') throw new LivynqError('DEVICE_OFFLINE', `Plugin ${adapterId} is ${status}`, 'Check its error in the plugin list and restart it');
+      throw new LivynqError('NOT_FOUND', `${adapterId} has no action "${name}"`, `Available: ${this.actions(adapterId).map((a) => a.name).join(', ') || 'none'}`);
+    }
     this.log.info({ adapter: adapterId, action: name, source }, 'plugin action');
     try {
       return await action.handler(params);
     } catch (err) {
-      throw err instanceof LivynqError ? err : new LivynqError('INTERNAL', err instanceof Error ? err.message : String(err));
+      // Plugin-reported failures (wrong pairing code, device unreachable…) are not server faults.
+      throw err instanceof LivynqError && err.code !== 'INTERNAL' ? err : new LivynqError('ACTION_FAILED', err instanceof Error ? err.message : String(err));
     }
   }
 

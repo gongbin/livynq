@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { Endpoint, Environment, Logger, ServerNode, VendorId } from '@matter/main';
 import { AggregatorEndpoint } from '@matter/main/endpoints/aggregator';
 import { BridgedDeviceBasicInformationServer } from '@matter/main/behaviors/bridged-device-basic-information';
@@ -123,7 +124,8 @@ export class MatterExporter implements Exporter {
     Logger.level = 'warn';
     const environment = Environment.default;
     environment.vars.set('storage.path', this.#options.storagePath);
-    if (this.#options.networkInterface) environment.vars.set('mdns.networkInterface', this.#options.networkInterface);
+    const networkInterface = this.#options.networkInterface ?? process.env.MATTER_MDNS_NETWORKINTERFACE ?? defaultMatterInterface();
+    if (networkInterface) environment.vars.set('mdns.networkInterface', networkInterface);
     const name = this.#options.name ?? 'Livynq Bridge';
     this.#server = await ServerNode.create({
       id: 'livynq-bridge',
@@ -517,3 +519,16 @@ function xyToHs(x: number, y: number): { h: number; s: number } {
   return { h: Math.round((((h * 60) % 360) + 360) % 360), s: Math.round((d / mx) * 100) };
 }
 
+
+/**
+ * Matter mDNS on every interface makes controllers try VPN/tunnel link-local addresses first
+ * (seen on macOS with utun*). Default to the primary LAN interface unless configured.
+ */
+export function defaultMatterInterface(): string | undefined {
+  const skip = /^(lo|utun|awdl|llw|bridge|docker|veth|br-|virbr|vmnet|tun|tap|wg|zt|tailscale|ham)/i;
+  for (const [name, addrs] of Object.entries(networkInterfaces())) {
+    if (skip.test(name)) continue;
+    if (addrs?.some((a) => a.family === 'IPv4' && !a.internal)) return name;
+  }
+  return undefined;
+}

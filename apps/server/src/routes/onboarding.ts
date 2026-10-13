@@ -53,7 +53,11 @@ export function registerOnboardingRoutes(
     const config = options.config;
     return {
       methods: [
-        ...OFFICIAL.map((o) => ({ id: o.method, module: o.module, plugin: o.id, enabled: adapters.includes(o.id), actions: home.actions(o.id) })),
+        ...OFFICIAL.map((o) => {
+          const info = (home.adapter(o.id) as { info?: () => { status: string; lastError: string | null } } | undefined)?.info?.();
+          const enabled = adapters.includes(o.id);
+          return { id: o.method, module: o.module, plugin: o.id, enabled, status: enabled ? (info?.status ?? 'running') : 'off', lastError: info?.lastError ?? null, actions: home.actions(o.id) };
+        }),
         {
           id: 'mqtt',
           enabled: adapters.includes('mqtt'),
@@ -83,6 +87,46 @@ export function registerOnboardingRoutes(
     });
     await home.addAdapter(await createPluginAdapter(resolved));
     if (options.config) updatePluginsInConfig(options.config.configFile, { add: entry });
-    return reply.status(201).send({ id: resolved.id, enabled: true, actions: home.actions(resolved.id) });
+    return reply.status(201).send({ id: resolved.id, enabled: true, ...(await settle(home, resolved.id)), actions: home.actions(resolved.id) });
   });
+
+  // Reconfigure an official plugin (e.g. wrong Zigbee serial port): restart it with the new config.
+  app.patch('/api/v1/plugins/:id', guards.admin, async (req) => {
+    const pluginId = (req.params as { id: string }).id;
+    const official = OFFICIAL.find((o) => o.id === pluginId);
+    if (!official || !home.adapters().includes(pluginId)) throw new LivynqError('NOT_FOUND', `Official plugin ${pluginId} is not enabled`);
+    const config = ((req.body ?? {}) as { config?: Record<string, unknown> }).config ?? {};
+    const entry: PluginEntry = { module: official.module, isolation: official.isolation, ...(Object.keys(config).length ? { config } : {}) };
+    await home.removeAdapter(pluginId);
+    const resolved = resolvePlugin(entry, {
+      dataDir: home.dataDir,
+      configDir: options.config ? dirname(options.config.configFile) : home.dataDir,
+      resolveBuiltin: (specifier) => fileURLToPath(import.meta.resolve(specifier)),
+      bundled: options.bundledPlugins,
+    });
+    await home.addAdapter(await createPluginAdapter(resolved));
+    if (options.config) updatePluginsInConfig(options.config.configFile, { add: entry });
+    return { id: pluginId, ...(await settle(home, pluginId)), actions: home.actions(pluginId) };
+  });
+
+  app.delete('/api/v1/plugins/:id', guards.admin, async (req, reply) => {
+    const pluginId = (req.params as { id: string }).id;
+    const official = OFFICIAL.find((o) => o.id === pluginId);
+    if (!home.adapters().includes(pluginId)) throw new LivynqError('NOT_FOUND', `Plugin ${pluginId} is not enabled`);
+    await home.removeAdapter(pluginId);
+    if (options.config && official) updatePluginsInConfig(options.config.configFile, { remove: (p) => p.module === official.module });
+    return reply.status(204).send();
+  });
+}
+
+/** Waits briefly so a plugin that fails on start (wrong serial port…) is reported as such, not as success. */
+async function settle(home: Home, id: string): Promise<{ status: string; lastError: string | null }> {
+  const info = () => (home.adapter(id) as { info?: () => { status: string; lastError: string | null } } | undefined)?.info?.();
+  for (let i = 0; i < 30; i++) {
+    const s = info();
+    if (!s || s.status === 'running' || s.status === 'crashed' || s.status === 'disabled') return { status: s?.status ?? 'running', lastError: s?.lastError ?? null };
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const s = info();
+  return { status: s?.status ?? 'running', lastError: s?.lastError ?? null };
 }

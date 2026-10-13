@@ -158,6 +158,16 @@ test('onboarding: methods, enabling an official plugin at runtime, plugin action
   assert.equal((await req('POST', '/api/v1/plugins', admin, { module: '@livynq/plugin-virtual' })).statusCode, 409);
   assert.equal((await req('GET', '/api/v1/onboarding', reader)).json().methods.find((m: { id: string }) => m.id === 'virtual').enabled, true);
   assert.equal((await req('POST', '/api/v1/plugins/virtual/actions/nope', admin, {})).statusCode, 404);
+  assert.equal(enabled.json().status, 'running');
+
+  // Reconfigure (restart with new config), then disable.
+  const patched = await req('PATCH', '/api/v1/plugins/virtual', admin, { config: { switches: [{ id: 'movie', name: 'Movie Mode' }] } });
+  assert.equal(patched.statusCode, 200);
+  assert.equal(home.registry.getDevice('virtual:movie')?.availability, 'online');
+  assert.equal(home.registry.getDevice('virtual:party'), undefined, 'switches dropped from the config are removed by the plugin');
+  assert.equal((await req('DELETE', '/api/v1/plugins/virtual', admin)).statusCode, 204);
+  assert.equal(home.registry.getDevice('virtual:movie')?.availability, 'offline');
+  assert.equal((await req('GET', '/api/v1/onboarding', reader)).json().methods.find((m: { id: string }) => m.id === 'virtual').status, 'off');
   assert.equal((await req('GET', '/api/v1/system/serial-ports', admin)).statusCode, 200);
   await app.close();
   await home.stop();
