@@ -1,4 +1,6 @@
 import type { EventEmitter } from 'node:events';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { defineAdapter, type PluginContext, type PluginDefinition, type PluginDevice } from '@livynq/sdk';
 import { commandPayload, planEntity, stateToUpdates, type EndpointPlan, type EsphomeEntityConfig } from './mapping.ts';
@@ -136,22 +138,57 @@ export function createEsphomePlugin(factories: { createClient: ClientFactory; cr
     async setup(ctx) {
       const configured = (Array.isArray(ctx.config.devices) ? ctx.config.devices : []) as DeviceConfig[];
       const defaultKey = typeof ctx.config.encryptionKey === 'string' ? ctx.config.encryptionKey : undefined;
-      const hosts = new Set<string>();
+      // Nodes added from the UI ("Add device") are remembered here.
+      const savedFile = join(ctx.dataDir, 'hosts.json');
+      let saved: DeviceConfig[] = [];
+      try {
+        saved = JSON.parse(readFileSync(savedFile, 'utf8')) as DeviceConfig[];
+      } catch {
+        // none yet
+      }
+      const hosts = new Map<string, () => void>();
+      const discovered = new Map<string, { host: string; address?: string; port?: number; at: number }>();
       const closers: (() => void)[] = [];
       const add = async (cfg: DeviceConfig) => {
         const key = cfg.host.toLowerCase();
         if (hosts.has(key)) return;
-        hosts.add(key);
-        closers.push(await runNode(ctx, factories.createClient, { encryptionKey: defaultKey, ...cfg }));
+        hosts.set(key, () => {});
+        hosts.set(key, await runNode(ctx, factories.createClient, { encryptionKey: defaultKey, ...cfg }));
       };
-      for (const cfg of configured) if (cfg?.host) await add(cfg);
+      for (const cfg of [...configured, ...saved]) if (cfg?.host) await add(cfg);
+      closers.push(() => hosts.forEach((close) => close()));
+
+      ctx.actions.register('add', 'Connect an ESPHome node: { host, port?, encryptionKey? }', async (p) => {
+        const host = String(p.host ?? '').trim();
+        if (!host) throw new Error('host is required (e.g. kitchen.local or 192.168.1.40)');
+        const cfg: DeviceConfig = { host, ...(p.port ? { port: Number(p.port) } : {}), ...(p.encryptionKey ? { encryptionKey: String(p.encryptionKey) } : {}) };
+        saved = [...saved.filter((s) => s.host.toLowerCase() !== host.toLowerCase()), cfg];
+        writeFileSync(savedFile, JSON.stringify(saved, null, 2), { mode: 0o600 });
+        hosts.get(host.toLowerCase())?.();
+        hosts.delete(host.toLowerCase());
+        await add(cfg);
+        return { added: host, note: 'The device appears once it connects (wrong encryption keys are reported in the log).' };
+      });
+      ctx.actions.register('remove', 'Disconnect an ESPHome node added from the UI: { host }', async (p) => {
+        const host = String(p.host ?? '').toLowerCase();
+        saved = saved.filter((s) => s.host.toLowerCase() !== host);
+        writeFileSync(savedFile, JSON.stringify(saved, null, 2), { mode: 0o600 });
+        hosts.get(host)?.();
+        hosts.delete(host);
+        return { removed: host };
+      });
+      ctx.actions.register('discovered', 'ESPHome nodes found on the network via mDNS', () =>
+        [...discovered.values()].map((d) => ({ ...d, connected: hosts.has(d.host.toLowerCase()) || (d.address !== undefined && hosts.has(d.address.toLowerCase())) })),
+      );
 
       if (ctx.config.discovery !== false && factories.createDiscovery) {
         const discovery = factories.createDiscovery();
         discovery.on('info', (found: { host?: string; address?: string; port?: number }) => {
+          if (found.host || found.address) discovered.set(String(found.host ?? found.address), { host: String(found.host ?? found.address), address: found.address, port: found.port, at: Date.now() });
+          if (ctx.config.autoAdd === false) return;
           const host = found.address ?? found.host;
           if (!host || hosts.has(host.toLowerCase()) || (found.host && hosts.has(found.host.toLowerCase()))) return;
-          if (found.host) hosts.add(found.host.toLowerCase());
+          if (found.host) hosts.set(found.host.toLowerCase(), () => {});
           ctx.log.info('discovered ESPHome node', { host: found.host, address: found.address });
           void add({ host, port: found.port });
         });

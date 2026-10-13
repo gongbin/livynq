@@ -92,7 +92,7 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
   home.useExtension(new AutomationEngine({ location: config.location }));
   if (!config.location) logger.info('no location configured: sun triggers/conditions are inactive (set location.latitude/longitude in livynq.yaml)');
 
-  const app = await createServer(home, { logger });
+  const app = await createServer(home, { logger, config, bundledPlugins: options.bundledPlugins });
   await home.start();
   await app.listen({ host: config.server.host, port: config.server.port });
 

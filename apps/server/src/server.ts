@@ -13,6 +13,9 @@ import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
 import { registerUiRoutes, wallSettings } from './routes/ui.ts';
+import { registerOnboardingRoutes } from './routes/onboarding.ts';
+import type { LivynqConfig } from './config.ts';
+import type { PluginDefinition } from '@livynq/sdk';
 import type { PluginRuntimeInfo } from '@livynq/plugin-host';
 
 declare module 'fastify' {
@@ -29,6 +32,9 @@ export interface HomeKitInfoProvider {
 export interface ServerOptions {
   logger: PinoLogger;
   webRoot?: string;
+  /** Lets the "Add device" wizard enable plugins and persist them. */
+  config?: LivynqConfig;
+  bundledPlugins?: Record<string, PluginDefinition>;
 }
 
 /**
@@ -225,6 +231,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerAutomationRoutes(app, home, { read, control, admin, source });
   registerImportRoutes(app, home, { admin, source });
   registerUiRoutes(app, home, { read, admin });
+  registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, bundledPlugins: options.bundledPlugins });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {

@@ -87,6 +87,9 @@ export function createZigbeePlugin(factories: { createController(options: Record
       const bridge = new ZigbeeBridge(ctx, controller, await factories.converters(), { friendlyNames: names });
       ctx.onStop(() => bridge.stop());
       await bridge.start();
+      ctx.actions.register('permitJoin', 'Open the Zigbee network for pairing: { seconds?: 1..254 (default 254) }', (p) => bridge.permitJoin(Number(p.seconds ?? 254)));
+      ctx.actions.register('stopJoin', 'Close the Zigbee network for pairing', () => bridge.permitJoin(0));
+      ctx.actions.register('status', 'Pairing state and device count', () => bridge.status());
     },
   });
 }

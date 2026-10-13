@@ -104,6 +104,26 @@ export class ZigbeeBridge {
   }
 
   #permitSwitch: PluginDevice | undefined;
+  #permitUntil = 0;
+
+  /** Opens (seconds > 0) or closes the network for pairing; also reflected on the pairing-mode switch. */
+  async permitJoin(seconds: number): Promise<{ joining: boolean; until: number | null }> {
+    const s = Math.max(0, Math.min(254, Math.round(seconds)));
+    await this.#controller.permitJoin(s);
+    this.#permitUntil = s ? Date.now() + s * 1000 : 0;
+    this.#permitSwitch?.update(1, 'onOff', { onOff: s > 0 });
+    clearTimeout(this.#permitTimer);
+    if (s) this.#permitTimer = setTimeout(() => {
+      this.#permitUntil = 0;
+      this.#permitSwitch?.update(1, 'onOff', { onOff: false });
+    }, s * 1000);
+    return { joining: s > 0, until: s ? this.#permitUntil : null };
+  }
+
+  status(): { joining: boolean; until: number | null; devices: number } {
+    const joining = this.#permitUntil > Date.now();
+    return { joining, until: joining ? this.#permitUntil : null, devices: this.#bound.size };
+  }
 
   /** A switch that opens the network for pairing (254 s), usable from the UI, CLI, agents or Apple Home. */
   async #createPermitJoinSwitch(): Promise<void> {
@@ -116,10 +136,7 @@ export class ZigbeeBridge {
     });
     this.#permitSwitch = sw;
     const set = async (on: boolean) => {
-      await this.#controller.permitJoin(on ? 254 : 0);
-      sw.update(1, 'onOff', { onOff: on });
-      clearTimeout(this.#permitTimer);
-      if (on) this.#permitTimer = setTimeout(() => sw.update(1, 'onOff', { onOff: false }), 254_000);
+      await this.permitJoin(on ? 254 : 0);
     };
     sw.handle(1, 'onOff', { on: () => set(true), off: () => set(false), toggle: () => set(!sw.get(1, 'onOff', 'onOff')) });
     sw.update(1, 'onOff', { onOff: false });

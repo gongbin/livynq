@@ -235,6 +235,13 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+    optionalDependencies:
+      '@livynq/plugin-esphome':
+        specifier: workspace:*
+        version: link:../../plugins/esphome
+      '@livynq/plugin-zigbee':
+        specifier: workspace:*
+        version: link:../../plugins/zigbee
 
   apps/web:
     dependencies:

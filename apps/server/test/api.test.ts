@@ -144,3 +144,21 @@ test('wall panel settings and background image are shared hub-wide', async () =>
   await app.close();
   await home.stop();
 });
+
+test('onboarding: methods, enabling an official plugin at runtime, plugin actions', async () => {
+  const { app, home, admin, reader, req } = await setup();
+  const before = (await req('GET', '/api/v1/onboarding', reader)).json();
+  assert.deepEqual(before.methods.map((m: { id: string; enabled: boolean }) => [m.id, m.enabled]), [
+    ['matter', false], ['zigbee', false], ['esphome', false], ['homeassistant', false], ['virtual', false], ['mqtt', false],
+  ]);
+  assert.equal((await req('POST', '/api/v1/plugins', admin, { module: 'evil-package' })).statusCode, 400);
+  const enabled = await req('POST', '/api/v1/plugins', admin, { module: '@livynq/plugin-virtual', config: { switches: [{ id: 'party', name: 'Party Mode' }] } });
+  assert.equal(enabled.statusCode, 201);
+  assert.equal(home.registry.getDevice('virtual:party')?.name, 'Party Mode', 'started without a restart');
+  assert.equal((await req('POST', '/api/v1/plugins', admin, { module: '@livynq/plugin-virtual' })).statusCode, 409);
+  assert.equal((await req('GET', '/api/v1/onboarding', reader)).json().methods.find((m: { id: string }) => m.id === 'virtual').enabled, true);
+  assert.equal((await req('POST', '/api/v1/plugins/virtual/actions/nope', admin, {})).statusCode, 404);
+  assert.equal((await req('GET', '/api/v1/system/serial-ports', admin)).statusCode, 200);
+  await app.close();
+  await home.stop();
+});

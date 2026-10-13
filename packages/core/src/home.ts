@@ -92,6 +92,12 @@ export class Home {
     return this;
   }
 
+  /** Registers an adapter and, when the home already runs, starts it right away (plugins enabled from the UI). */
+  async addAdapter(adapter: Adapter): Promise<void> {
+    this.useAdapter(adapter);
+    if (this.#running) await this.#guard(`adapter ${adapter.id}`, () => adapter.start(this.#contextFor(adapter.id)));
+  }
+
   useExporter(exporter: Exporter): this {
     if (this.#exporters.has(exporter.id)) throw new Error(`Exporter ${exporter.id} already registered`);
     this.#exporters.set(exporter.id, exporter);
