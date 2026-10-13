@@ -66,6 +66,7 @@ export class Home {
   readonly #handlers = new Map<string, { adapter: string; handlers: Record<string, CommandHandler> }>();
   readonly #commandTimeoutMs: number;
   #pruneTimer: NodeJS.Timeout | undefined;
+  #confirmationTimer: NodeJS.Timeout | undefined;
   #running = false;
 
   constructor(options: HomeOptions) {
@@ -134,12 +135,15 @@ export class Home {
     }
     this.registry.pruneHistory();
     this.#pruneTimer = setInterval(() => this.registry.pruneHistory(), 6 * 3600 * 1000).unref();
+    // Expire stale confirmations promptly so every UI hears about it.
+    this.#confirmationTimer = setInterval(() => this.confirmations.list('pending'), 15_000).unref();
   }
 
   async stop(): Promise<void> {
     if (!this.#running) return;
     this.#running = false;
     clearInterval(this.#pruneTimer);
+    clearInterval(this.#confirmationTimer);
     for (const extension of this.#extensions.values()) await this.#guard(`stop extension ${extension.id}`, () => extension.stop());
     for (const adapter of this.#adapters.values()) await this.#guard(`stop adapter ${adapter.id}`, () => adapter.stop());
     for (const exporter of this.#exporters.values()) await this.#guard(`stop exporter ${exporter.id}`, () => exporter.stop());

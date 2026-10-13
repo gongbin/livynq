@@ -8,6 +8,8 @@ export type AttributeValue = boolean | number | string | null;
 /** Where a device may be exposed. `agent` controls MCP / LLM visibility. */
 export interface ExposurePolicy {
   homekit: boolean;
+  /** Matter bridge (Google / Alexa / SmartThings / Apple via Matter). Missing means true. */
+  matter?: boolean;
   agent: 'visible' | 'readOnly' | 'hidden';
 }
 

@@ -11,6 +11,9 @@ import { bundledPlugins } from './bundled.ts';
 if (process.env.LIVYNQ_ROLE === 'plugin-host') {
   runPluginHost();
 } else {
+  // matter.js reads its log format while initialising; in the bundle that happens before its
+  // formats register, so pin it explicitly.
+  process.env.MATTER_LOG_FORMAT ??= 'plain';
   bundledPlugins['@livynq/plugin-virtual'] = virtualPlugin;
   bundledPlugins['@livynq/plugin-homeassistant'] = homeAssistantPlugin;
   void import('./main.ts');

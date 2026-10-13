@@ -24,6 +24,7 @@ Server
       --mqtt <url>              MQTT broker (Home Assistant discovery), e.g. mqtt://192.168.1.2
       --builtin-broker          Run an embedded MQTT broker on :1883
       --no-homekit              Do not start the HomeKit bridge
+      --matter                  Start the Matter bridge (Google / Alexa / SmartThings / Apple)
   login-url                     Print a web UI login link (local machine only)
 
 Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for remote)
@@ -70,6 +71,7 @@ const { values: flags, positionals } = parseArgs({
     mqtt: { type: 'string' },
     'builtin-broker': { type: 'boolean' },
     'no-homekit': { type: 'boolean' },
+    matter: { type: 'boolean' },
     'log-level': { type: 'string' },
     url: { type: 'string' },
     token: { type: 'string' },
@@ -106,6 +108,7 @@ function overrides(): ConfigOverrides {
     host: str('host'),
     demo: flags.demo ? true : undefined,
     homekit: flags['no-homekit'] ? false : undefined,
+    matter: flags.matter ? true : undefined,
     mqttUrl: str('mqtt'),
     builtinBroker: flags['builtin-broker'] ? true : undefined,
     logLevel: str('log-level'),

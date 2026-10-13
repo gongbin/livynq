@@ -14,6 +14,7 @@ export interface LivynqConfig {
   logLevel: string;
   location?: { latitude: number; longitude: number };
   backup: { automatic: boolean; keep: number };
+  matter: { bridge: { enabled: boolean; port: number; passcode?: number; discriminator?: number } };
   plugins: PluginEntry[];
   configFile: string;
 }
@@ -27,6 +28,7 @@ export interface ConfigOverrides {
   mqttUrl?: string;
   builtinBroker?: boolean;
   logLevel?: string;
+  matter?: boolean;
 }
 
 export function defaultDataDir(): string {
@@ -67,6 +69,14 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
       broker: { builtin, port: brokerPort },
     },
     logLevel: overrides.logLevel ?? env.LIVYNQ_LOG_LEVEL ?? yaml.logLevel ?? 'info',
+    matter: {
+      bridge: {
+        enabled: overrides.matter ?? yaml.matter?.bridge?.enabled ?? false,
+        port: Number(yaml.matter?.bridge?.port ?? 5540),
+        passcode: yaml.matter?.bridge?.passcode,
+        discriminator: yaml.matter?.bridge?.discriminator,
+      },
+    },
     plugins: Array.isArray(yaml.plugins) ? (yaml.plugins as PluginEntry[]) : [],
     configFile: file,
     backup: { automatic: yaml.backup?.automatic ?? true, keep: Number(yaml.backup?.keep ?? 7) },

@@ -189,6 +189,10 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     await adapter.restart();
     return adapter.info();
   });
+  app.get('/api/v1/matter', read, async () => {
+    const matter = home.exporter('matter') as unknown as { info(): unknown } | undefined;
+    return matter?.info() ?? { enabled: false };
+  });
   app.get('/api/v1/commands/recent', read, async (req) => {
     const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 50));
     return home.recentCommands(limit);
@@ -304,13 +308,14 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
 function parseExposure(value: unknown): Partial<ExposurePolicy> | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'object' || value === null) throw new LivynqError('INVALID_PARAMS', 'exposure must be an object');
-  const { homekit, agent, ...rest } = value as Record<string, unknown>;
+  const { homekit, agent, matter, ...rest } = value as Record<string, unknown>;
   if (Object.keys(rest).length) throw new LivynqError('INVALID_PARAMS', `Unknown exposure keys: ${Object.keys(rest).join(', ')}`);
   if (homekit !== undefined && typeof homekit !== 'boolean') throw new LivynqError('INVALID_PARAMS', 'exposure.homekit must be boolean');
+  if (matter !== undefined && typeof matter !== 'boolean') throw new LivynqError('INVALID_PARAMS', 'exposure.matter must be boolean');
   if (agent !== undefined && !['visible', 'readOnly', 'hidden'].includes(agent as string)) {
     throw new LivynqError('INVALID_PARAMS', 'exposure.agent must be visible, readOnly or hidden');
   }
-  return { ...(homekit === undefined ? {} : { homekit }), ...(agent === undefined ? {} : { agent: agent as ExposurePolicy['agent'] }) };
+  return { ...(homekit === undefined ? {} : { homekit }), ...(matter === undefined ? {} : { matter }), ...(agent === undefined ? {} : { agent: agent as ExposurePolicy['agent'] }) };
 }
 
 function optional(value: unknown, type: 'string'): string | undefined {

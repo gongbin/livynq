@@ -6,6 +6,7 @@ import { DemoAdapter, Home, writeAutomaticBackup } from '@livynq/core';
 import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
 import { AutomationEngine } from '@livynq/automation';
+import { MatterExporter } from '@livynq/exporter-matter';
 import { createPluginAdapter, resolvePlugin } from '@livynq/plugin-host';
 import type { PluginDefinition } from '@livynq/sdk';
 import { dirname } from 'node:path';
@@ -77,6 +78,16 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
     );
   }
 
+  if (config.matter.bridge.enabled) {
+    home.useExporter(
+      new MatterExporter({
+        storagePath: join(config.dataDir, 'secrets', 'matter'),
+        port: config.matter.bridge.port,
+        passcode: config.matter.bridge.passcode,
+        discriminator: config.matter.bridge.discriminator,
+      }),
+    );
+  }
   home.useExtension(new AutomationEngine({ location: config.location }));
   if (!config.location) logger.info('no location configured: sun triggers/conditions are inactive (set location.latitude/longitude in livynq.yaml)');
 

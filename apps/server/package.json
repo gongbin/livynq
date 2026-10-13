@@ -18,6 +18,7 @@
     "@livynq/automation": "workspace:*",
     "@livynq/core": "workspace:*",
     "@livynq/exporter-homekit": "workspace:*",
+    "@livynq/exporter-matter": "workspace:*",
     "@livynq/importer-homeassistant": "workspace:*",
     "@livynq/model": "workspace:*",
     "@livynq/plugin-homeassistant": "workspace:*",
