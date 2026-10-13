@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref } from 'react';
 import { Icon, type IconName } from './icons.tsx';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -56,7 +56,7 @@ export function Button({
   className,
   size = 'md',
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; icon?: IconName; busy?: boolean; size?: 'sm' | 'md' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; icon?: IconName; busy?: boolean; size?: 'sm' | 'md'; ref?: Ref<HTMLButtonElement> }) {
   const variants: Record<ButtonVariant, string> = {
     primary: 'bg-ink text-bg hover:opacity-90',
     amber: 'bg-amber text-on-amber hover:brightness-105',

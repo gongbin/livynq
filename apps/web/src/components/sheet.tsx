@@ -1,16 +1,21 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { createStore } from '../lib/store.ts';
+
+/** How many sheets are open; overlays that must stay visible (approval banner) make room on wide screens. */
+export const openSheets = createStore(0);
 
 /**
  * Bottom sheet on phones, right-hand drawer on tablet/desktop (as in the prototype).
  * Closes on Escape and overlay click; focus moves into the sheet and returns afterwards.
  */
-export function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ label, onClose, children, clearOverlay }: { label: string; onClose: () => void; children: ReactNode; clearOverlay?: boolean }) {
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
 
   useEffect(() => {
+    openSheets.set((n) => n + 1);
     const previous = document.activeElement as HTMLElement | null;
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
@@ -23,13 +28,15 @@ export function Sheet({ label, onClose, children }: { label: string; onClose: ()
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = overflow;
+      openSheets.set((n) => n - 1);
       previous?.focus?.();
     };
   }, []);
 
   return createPortal(
     <div className="fixed inset-0 z-40">
-      <div className="absolute inset-0 animate-fade-in bg-overlay" onClick={onClose} aria-hidden="true" />
+      {/* clearOverlay: keep what is behind fully visible, e.g. to preview wall look changes live. */}
+      <div className={clearOverlay ? 'absolute inset-0' : 'absolute inset-0 animate-fade-in bg-overlay'} onClick={onClose} aria-hidden="true" />
       <div
         ref={panel}
         role="dialog"

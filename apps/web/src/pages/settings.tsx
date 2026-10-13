@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Icon, type IconName } from '../components/icons.tsx';
 import { LangSwitch, ThemeSwitch } from '../components/shell.tsx';
 import { Badge, Button, Card, PageHeader, SectionLabel } from '../components/ui.tsx';
+import { OpenWallButton, WallSettingsForm } from '../components/wall-settings-form.tsx';
 import { signOut } from '../lib/api.ts';
 import { formatDuration } from '../lib/format.ts';
 import { useLang, useT, type MessageKey } from '../lib/i18n.ts';
@@ -50,6 +51,16 @@ export function SettingsPage() {
           <Row k={t('settings.mcpPath')}>
             <code className="font-mono text-xs">{info ? `${location.origin}${info.mcp.path}` : '—'}</code>
           </Row>
+        </Card>
+        <Card className="flex flex-col gap-4 lg:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <SectionLabel>{t('wall.title')}</SectionLabel>
+              <p className="mt-1.5 mb-0 text-[13px] leading-relaxed text-muted">{t('wall.subtitle')}</p>
+            </div>
+            <OpenWallButton />
+          </div>
+          <WallSettingsForm />
         </Card>
         <Card className="flex flex-col gap-3">
           <SectionLabel>{t('settings.session')}</SectionLabel>

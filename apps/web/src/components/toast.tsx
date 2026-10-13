@@ -4,7 +4,7 @@ import { cx } from './ui.tsx';
 
 interface Toast {
   id: number;
-  tone: 'error' | 'ok';
+  tone: 'error' | 'ok' | 'info';
   text: string;
 }
 
@@ -14,7 +14,7 @@ let seq = 0;
 export function toast(text: string, tone: Toast['tone'] = 'ok'): void {
   const id = ++seq;
   toasts.set((list) => [...list.slice(-2), { id, tone, text }]);
-  setTimeout(() => dismiss(id), tone === 'error' ? 6000 : 3000);
+  setTimeout(() => dismiss(id), tone === 'ok' ? 3000 : 6000);
 }
 
 function dismiss(id: number): void {
@@ -37,7 +37,7 @@ export function Toaster() {
             t.tone === 'error' ? 'bg-alert text-white' : 'bg-ink text-bg',
           )}
         >
-          <Icon name={t.tone === 'error' ? 'alert' : 'circleCheck'} size={17} className="shrink-0" />
+          <Icon name={t.tone === 'error' ? 'alert' : t.tone === 'info' ? 'hourglass' : 'circleCheck'} size={17} className="shrink-0" />
           <span className="min-w-0 flex-1">{t.text}</span>
           <button type="button" aria-label="Dismiss" onClick={() => dismiss(t.id)} className="-mr-1 grid size-7 place-items-center rounded-lg border-0 bg-transparent opacity-80 hover:opacity-100">
             <Icon name="x" size={15} />

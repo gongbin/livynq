@@ -1,10 +1,24 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DeviceDTO, ExposurePolicy } from '@livynq/model';
 import { api, errorMessage, type DevicePatch } from '../lib/api.ts';
-import { attr, describe, readings, roomName } from '../lib/devices.ts';
+import { attr, describe, readings, roomName, type DeviceView } from '../lib/devices.ts';
 import { useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
 import { useCan } from '../lib/session.ts';
+import {
+  CoverBar,
+  CoverButtons,
+  CoverPositionSlider,
+  CurrentTemp,
+  FanModeChips,
+  FanSpeedSlider,
+  LockButton,
+  ModeChips,
+  PressTime,
+  RunningPill,
+  TargetStepper,
+  usePressFlash,
+} from './appliance-controls.tsx';
 import { BrightnessSlider, ColorTempSlider, HuePicker, useCommand, usePending } from './device-controls.tsx';
 import { toneStyle } from './device-card.tsx';
 import { HistoryStrip } from './history.tsx';
@@ -90,6 +104,8 @@ function SheetBody({ device, onClose }: { device: DeviceDTO; onClose: () => void
         </div>
       )}
 
+      <ApplianceControls device={device} v={v} />
+
       {assumed && <p className="m-0 text-xs text-muted">{t('dev.assumed')}</p>}
 
       <ReadingTiles device={device} />
@@ -100,9 +116,103 @@ function SheetBody({ device, onClose }: { device: DeviceDTO; onClose: () => void
   );
 }
 
+/** Controls for covers, climate, fans, locks and buttons (lights are handled above). */
+function ApplianceControls({ device, v }: { device: DeviceDTO; v: DeviceView }) {
+  const t = useT();
+  const flash = usePressFlash(v.button?.at);
+  if ((v.kind === 'cover' || v.kind === 'garage') && v.cover) {
+    const c = v.cover;
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2.5 rounded-tile bg-chip p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[34px] leading-none font-light tracking-[-0.04em] tabular-nums">{c.position === undefined ? '—' : `${c.position}%`}</span>
+            <span className="text-[13px] font-bold text-muted">{v.stateText}</span>
+          </div>
+          <CoverBar cover={c} className="bg-surface/70" />
+        </div>
+        {v.kind === 'cover' && <CoverPositionSlider device={device} cover={c} />}
+        <CoverButtons device={device} cover={c} garage={v.kind === 'garage'} labels large />
+      </div>
+    );
+  }
+  if (v.kind === 'climate' && v.climate) {
+    const c = v.climate;
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4 rounded-tile bg-chip p-4">
+          <CurrentTemp climate={c} large />
+          <TargetStepper device={device} climate={c} large />
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <SectionLabel>{t('dev.mode')}</SectionLabel>
+            {c.mode && c.mode !== 'off' && <RunningPill running={c.running} />}
+          </div>
+          <ModeChips device={device} climate={c} labels />
+        </div>
+        {c.fan && (
+          <div className="flex flex-col gap-2.5">
+            <SectionLabel>{t('dev.fanMode')}</SectionLabel>
+            <FanModeChips device={device} fan={c.fan} />
+            {c.fan.percent !== undefined && <FanSpeedSlider device={device} fan={c.fan} />}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (v.kind === 'fan' && v.fan) {
+    return (
+      <div className="flex flex-col gap-4">
+        <FanSpeedSlider device={device} fan={v.fan} />
+        <FanModeChips device={device} fan={v.fan} />
+      </div>
+    );
+  }
+  if (v.kind === 'lock' && v.lock) {
+    const ep = device.endpoints.find((e) => e.capabilities.includes('doorLock'));
+    if (!ep) return null;
+    const unlocked = v.lock === 'unlocked';
+    return (
+      <div className="flex flex-col gap-3">
+        <div className={cx('flex items-center gap-3 rounded-tile p-4', v.lock === 'jammed' ? 'bg-alert-soft' : unlocked ? 'bg-amber-soft' : 'bg-chip')}>
+          <Icon name={unlocked ? 'lockOpen' : v.lock === 'jammed' ? 'alert' : 'lock'} size={26} className={v.lock === 'jammed' ? 'text-alert' : undefined} />
+          <span className="text-[22px] font-light tracking-[-0.02em]">{t(`lock.${v.lock}`)}</span>
+        </div>
+        <LockButton device={device} endpointId={ep.id} state={v.lock} large />
+      </div>
+    );
+  }
+  if (v.kind === 'button' && v.button) {
+    const b = v.button;
+    return (
+      <div className={cx('grid grid-cols-2 gap-2 rounded-tile', flash && 'lv-press-flash')}>
+        <div className="flex flex-col gap-1 rounded-tile bg-chip p-3.5">
+          <span className="flex items-center gap-1.5 text-xs font-bold text-muted">
+            <Icon name="circleDot" size={14} />
+            {t('button.lastPress')}
+          </span>
+          <span className="text-[22px] font-light tracking-[-0.03em]">{b.event ? t(`button.${b.event}`) : '—'}</span>
+          <span className="text-xs text-muted">
+            <PressTime at={b.at} />
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 rounded-tile bg-chip p-3.5">
+          <span className="flex items-center gap-1.5 text-xs font-bold text-muted">
+            <Icon name="code" size={14} />
+            {t('button.action')}
+          </span>
+          <span className="truncate font-mono text-[15px]">{b.action ?? '—'}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 function ReadingTiles({ device }: { device: DeviceDTO }) {
   const t = useT();
-  const tiles: { key: string; icon: Parameters<typeof Icon>[0]['name']; label: string; value: string; alert?: boolean }[] = readings(device).map((r) => ({
+  const tiles: { key: string; icon: Parameters<typeof Icon>[0]['name']; label: string; value: string; alert?: boolean }[] = readings(device).filter((r) => !r.controlled).map((r) => ({
     key: `${r.endpointId}/${r.capability}`,
     icon: r.icon,
     label: t(r.label),

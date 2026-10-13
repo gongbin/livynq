@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { TokenScope } from '@livynq/model';
+import type { Risk, TokenScope } from '@livynq/model';
+import { ApprovalList } from '../components/approvals.tsx';
 import { Icon } from '../components/icons.tsx';
 import { toast } from '../components/toast.tsx';
 import { Badge, Button, Card, ConfirmButton, CopyButton, Dot, ErrorNote, PageHeader, SectionLabel, Segmented, Spinner, TextField, cx } from '../components/ui.tsx';
 import { ApiError, api, errorMessage, type AuditRow, type TokenInfo } from '../lib/api.ts';
+import { loadPendingConfirmations, loadRecentConfirmations, useConfirmations } from '../lib/confirmations.ts';
 import { formatDateTime, formatRelative } from '../lib/format.ts';
 import { useLang, useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
@@ -30,13 +32,7 @@ export function AgentsPage() {
       <p className="-mt-1 mb-0 max-w-3xl text-sm leading-relaxed text-pretty">{t('agents.mcp')}</p>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
-          <Card className="flex flex-col gap-3.5">
-            <SectionLabel>{t('agents.approvals')}</SectionLabel>
-            <div className="flex items-start gap-2.5 text-sm text-muted">
-              <Icon name="circleCheck" size={18} className="mt-px shrink-0 text-ok" />
-              <span className="leading-relaxed">{t('agents.approvalsSoon')}</span>
-            </div>
-          </Card>
+          <ApprovalsCard />
           <AuditCard />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
@@ -45,6 +41,37 @@ export function AgentsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+function ApprovalsCard() {
+  const t = useT();
+  const all = useConfirmations();
+  const pending = Object.values(all).filter((c) => c.status === 'pending' && c.expiresAt > Date.now()).length;
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    loadRecentConfirmations().then(
+      () => setError(null),
+      (e: unknown) => setError(errorMessage(e)),
+    );
+    // The banner keeps pending ones live; refresh the history now and then for decisions made elsewhere.
+    const id = setInterval(() => void loadRecentConfirmations().catch(() => undefined), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel className="flex items-center gap-2">
+          {t('agents.approvals')}
+          {pending > 0 && <Badge tone="alert" className="px-2! py-0! tracking-normal">{pending}</Badge>}
+        </SectionLabel>
+        <Button size="sm" variant="ghost" icon="activity" onClick={() => void loadPendingConfirmations().then(loadRecentConfirmations).catch(() => undefined)} aria-label={t('common.retry')}>
+          <span className="sr-only">{t('common.retry')}</span>
+        </Button>
+      </div>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <ApprovalList />
+    </Card>
   );
 }
 
@@ -130,6 +157,7 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [scope, setScope] = useState<TokenScope>('control');
+  const [riskLimit, setRiskLimit] = useState<Risk>('medium');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ token: string; info: TokenInfo } | null>(null);
 
@@ -149,7 +177,7 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
   const create = () => {
     if (!name.trim()) return;
     setBusy(true);
-    api.createToken(name.trim(), scope).then(
+    api.createToken(name.trim(), scope, scope === 'read' ? undefined : riskLimit).then(
       (res) => {
         setBusy(false);
         setCreated(res);
@@ -217,10 +245,26 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
             <Segmented<TokenScope>
               label={t('agents.scope')}
               value={scope}
-              onChange={setScope}
+              onChange={(s) => {
+                setScope(s);
+                // Same defaults as the server: admin may do anything, control stops at medium risk.
+                setRiskLimit(s === 'admin' ? 'high' : 'medium');
+              }}
               options={(['read', 'control', 'admin'] as const).map((s) => ({ value: s, label: scopeLabel(s) }))}
             />
           </div>
+          {scope !== 'read' && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-bold">{t('agents.riskLimit')}</span>
+              <Segmented<Risk>
+                label={t('agents.riskLimit')}
+                value={riskLimit}
+                onChange={setRiskLimit}
+                options={(['low', 'medium', 'high'] as const).map((r) => ({ value: r, label: t(`risk.${r}`) }))}
+              />
+              <span className="text-xs leading-normal text-muted">{t('agents.riskLimitHint')}</span>
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <Button size="sm" onClick={() => setCreating(false)}>
               {t('common.cancel')}
@@ -251,7 +295,8 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
                 {current && <Badge tone="amber">{t('agents.current')}</Badge>}
               </div>
               <div className="mt-0.5 text-[12.5px] text-muted">
-                {scopeLabel(tk.scope)} · {tk.lastUsedAt ? t('agents.lastUsed', { t: formatRelative(tk.lastUsedAt, lang) }) : t('agents.neverUsed')}
+                {scopeLabel(tk.scope)}
+                {tk.riskLimit && tk.scope !== 'read' ? ` · ${t('agents.riskUpTo', { r: t(`risk.${tk.riskLimit}`) })}` : ''} · {tk.lastUsedAt ? t('agents.lastUsed', { t: formatRelative(tk.lastUsedAt, lang) }) : t('agents.neverUsed')}
               </div>
             </div>
             {!current && <ConfirmButton size="sm" label={t('agents.revoke')} confirmLabel={t('agents.revokeConfirm')} onConfirm={() => void revoke(tk.id)} />}

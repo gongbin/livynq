@@ -1,6 +1,8 @@
 import type { AttributeValue, CommandBody, DeviceDTO, Room, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { ApiError, api, auth } from './api.ts';
+import { AwaitingApproval, clearConfirmations, loadPendingConfirmations, upsertConfirmation } from './confirmations.ts';
 import { createStore, useStore } from './store.ts';
+import { clearWallSettings, loadWallSettings, wallSettings } from './wall-settings.ts';
 
 export type LinkStatus = 'connecting' | 'open' | 'closed';
 
@@ -89,7 +91,7 @@ export function sendCommand(deviceId: string, endpointId: number, body: CommandB
       socket.send(JSON.stringify(msg));
     } else {
       api.command(deviceId, endpointId, body).then(
-        () => onResult(id, true),
+        (res) => (res.ok ? onResult(id, true) : onResult(id, false, new AwaitingApproval(res.confirmation.id, res.confirmation.summary))),
         (e: unknown) => onResult(id, false, e instanceof Error ? e : new Error(String(e))),
       );
     }
@@ -107,6 +109,9 @@ function apply(msg: WsServerMessage): void {
   switch (msg.type) {
     case 'snapshot':
       live.set((s) => ({ ...s, ready: true, devices: Object.fromEntries(msg.devices.map((d) => [d.id, d])), rooms: sortRooms(msg.rooms) }));
+      // A (re)connect may have missed live updates: resync what is not part of the snapshot.
+      void loadPendingConfirmations();
+      void loadWallSettings();
       return;
     case 'device':
       live.set((s) => ({ ...s, devices: { ...s.devices, [msg.device.id]: msg.device } }));
@@ -137,8 +142,15 @@ function apply(msg: WsServerMessage): void {
       });
       onStateFor(pendingKey(msg.deviceId, msg.endpointId, msg.capability));
       return;
+    case 'confirmation':
+      upsertConfirmation(msg.confirmation);
+      return;
+    case 'settings':
+      wallSettings.set(msg.wall);
+      return;
     case 'result':
       if (msg.ok) onResult(msg.id, true);
+      else if (msg.error.code === 'CONFIRMATION_REQUIRED' && msg.error.hint) onResult(msg.id, false, new AwaitingApproval(msg.error.hint, msg.error.message));
       else onResult(msg.id, false, new ApiError(0, msg.error));
       return;
   }
@@ -192,6 +204,8 @@ export function disconnectLive(): void {
   ws?.close();
   for (const id of [...inflight.keys()]) settle(id, new Error('Disconnected'));
   live.set(initial);
+  clearConfirmations();
+  clearWallSettings();
 }
 
 // Reconnect promptly when a phone/tablet wakes up or the network returns.

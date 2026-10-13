@@ -1,4 +1,6 @@
 import { useEffect, useState, type ComponentType } from 'react';
+import { ApprovalBanner } from './components/approvals.tsx';
+import { DialogHost } from './components/dialog.tsx';
 import { Shell } from './components/shell.tsx';
 import { Toaster } from './components/toast.tsx';
 import { Button, EmptyState } from './components/ui.tsx';
@@ -36,6 +38,7 @@ export function App() {
   return (
     <>
       {token ? <Authed key={token} /> : <LoginPage />}
+      <DialogHost />
       <Toaster />
     </>
   );
@@ -60,10 +63,17 @@ function Authed() {
     window.scrollTo(0, 0);
   }, [route]);
 
-  if (route === 'wall') return <WallPage />;
+  if (route === 'wall')
+    return (
+      <>
+        <WallPage />
+        <ApprovalBanner />
+      </>
+    );
   const Page = pages[route];
   return (
     <Shell route={route}>
+      <ApprovalBanner />
       {failed && (
         <EmptyState icon="wifiOff" title={t('login.unreachable')}>
           <Button

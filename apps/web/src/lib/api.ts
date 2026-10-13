@@ -1,12 +1,15 @@
 import type {
   ApiErrorBody,
   CommandBody,
+  ConfirmationDTO,
   DeviceDTO,
   ExposurePolicy,
   HomeKitBridgeInfo,
+  Risk,
   Room,
   SystemInfo,
   TokenScope,
+  WallSettings,
 } from '@livynq/model';
 import { createStore, readLocal, writeLocal } from './store.ts';
 
@@ -16,6 +19,8 @@ export interface TokenInfo {
   id: string;
   name: string;
   scope: TokenScope;
+  /** Commands above this risk wait for a human approval (older servers may omit it). */
+  riskLimit?: Risk;
   createdAt: number;
   lastUsedAt: number | null;
 }
@@ -101,6 +106,17 @@ export interface ValidationResult {
   warnings?: string[];
 }
 
+/** REST 202: the command was queued for a human approval instead of being executed. */
+export interface PendingCommand {
+  ok: false;
+  pending: true;
+  confirmation: ConfirmationDTO;
+}
+
+export type CommandResult = { ok: true } | PendingCommand;
+
+export type ConfirmationStatus = ConfirmationDTO['status'];
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -167,7 +183,7 @@ export const api = {
   updateDevice: (id: string, patch: DevicePatch) => request<DeviceDTO>('PATCH', `/devices/${enc(id)}`, patch),
   deleteDevice: (id: string) => request<void>('DELETE', `/devices/${enc(id)}`),
   command: (deviceId: string, endpointId: number, body: CommandBody) =>
-    request<{ ok: true }>('POST', `/devices/${enc(deviceId)}/endpoints/${endpointId}/commands`, body),
+    request<CommandResult>('POST', `/devices/${enc(deviceId)}/endpoints/${endpointId}/commands`, body),
   history: (deviceId: string, q: { endpoint: number; capability: string; attribute: string; from?: number; to?: number }) => {
     const params = new URLSearchParams({ endpoint: String(q.endpoint), capability: q.capability, attribute: q.attribute });
     if (q.from) params.set('from', String(q.from));
@@ -183,7 +199,7 @@ export const api = {
   homekit: () => request<{ enabled: boolean; bridges: HomeKitBridgeInfo[] }>('GET', '/homekit'),
 
   tokens: () => request<TokenInfo[]>('GET', '/tokens'),
-  createToken: (name: string, scope: TokenScope) => request<{ token: string; info: TokenInfo }>('POST', '/tokens', { name, scope }),
+  createToken: (name: string, scope: TokenScope, riskLimit?: Risk) => request<{ token: string; info: TokenInfo }>('POST', '/tokens', { name, scope, riskLimit }),
   revokeToken: (id: string) => request<void>('DELETE', `/tokens/${enc(id)}`),
 
   automations: () => request<AutomationInfo[]>('GET', '/automations'),
@@ -200,7 +216,50 @@ export const api = {
   automationVersions: (id: string) => request<AutomationVersion[]>('GET', `/automations/${enc(id)}/versions`),
 
   recentCommands: (limit = 50) => request<AuditRow[]>('GET', `/commands/recent?limit=${limit}`),
+
+  confirmations: (status?: ConfirmationStatus) => request<ConfirmationDTO[]>('GET', `/confirmations${status ? `?status=${status}` : ''}`),
+  confirmation: (id: string) => request<ConfirmationDTO>('GET', `/confirmations/${enc(id)}`),
+  approveConfirmation: (id: string) => request<ConfirmationDTO>('POST', `/confirmations/${enc(id)}/approve`),
+  denyConfirmation: (id: string) => request<ConfirmationDTO>('POST', `/confirmations/${enc(id)}/deny`),
+
+  uiSettings: () => request<{ wall: WallSettings }>('GET', '/ui/settings'),
+  updateWallSettings: (wall: Partial<Pick<WallSettings, 'cardOpacity' | 'backgroundBlur' | 'backgroundDim'>>) => request<{ wall: WallSettings }>('PATCH', '/ui/settings', { wall }),
+  deleteWallBackground: () => request<{ wall: WallSettings }>('DELETE', '/ui/wall-background'),
+  uploadWallBackground,
 };
+
+/** XHR rather than fetch: fetch cannot report upload progress. */
+function uploadWallBackground(image: Blob, onProgress?: (fraction: number) => void): Promise<{ wall: WallSettings }> {
+  const token = auth.get();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', '/api/v1/ui/wall-background');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', image.type);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onerror = () => reject(new ApiError(0, { code: 'NETWORK', message: 'Upload failed' }));
+    xhr.onload = () => {
+      let data: unknown;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = undefined;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as { wall: WallSettings });
+      if (xhr.status === 401 && token === auth.get()) signOut();
+      const err = (data as ApiErrorBody | undefined)?.error ?? { code: 'HTTP_' + xhr.status, message: xhr.statusText || 'Upload failed' };
+      reject(new ApiError(xhr.status, err));
+    };
+    xhr.send(image);
+  });
+}
+
+/** Image URLs cannot carry an Authorization header, so the token rides along in the query. */
+export function withToken(url: string): string {
+  const token = auth.get();
+  if (!token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
 
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.hint ? `${err.message} (${err.hint})` : err.message;

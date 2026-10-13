@@ -2,20 +2,26 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import type { DeviceDTO } from '@livynq/model';
 import { degreesToHue, kelvinToMireds, percentToLevel, percentToSat } from '@livynq/model';
 import { errorMessage } from '../lib/api.ts';
+import { AwaitingApproval } from '../lib/confirmations.ts';
 import { useT } from '../lib/i18n.ts';
 import { pendingKey, sendCommand, useLive } from '../lib/live.ts';
 import { kelvinColor, type LightState } from '../lib/devices.ts';
 import { toast } from './toast.tsx';
 import { cx } from './ui.tsx';
 
-/** Runs a device command; failures surface as a toast. Resolves to whether it succeeded. */
+/**
+ * Runs a device command; failures surface as a toast. Resolves to whether it took effect.
+ * A command held for human approval is not a failure: it gets a calm notice, and the
+ * approval banner takes over from there.
+ */
 export function useCommand() {
   const t = useT();
   return (deviceId: string, endpointId: number, capability: string, command: string, params?: Record<string, unknown>) =>
     sendCommand(deviceId, endpointId, { capability, command, params }).then(
       () => true,
       (err: unknown) => {
-        toast(t('dev.commandFailed', { msg: errorMessage(err) }), 'error');
+        if (err instanceof AwaitingApproval) toast(t('dev.awaitingApproval'), 'info');
+        else toast(t('dev.commandFailed', { msg: errorMessage(err) }), 'error');
         return false;
       },
     );
