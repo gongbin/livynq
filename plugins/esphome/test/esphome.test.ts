@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Home } from '@livynq/core';
 import { InProcessPluginAdapter } from '@livynq/plugin-host';
 import { createEsphomePlugin, type EsphomeClient, type EsphomeEntity } from '../src/index.ts';
-import { commandPayload, hsToRgb, planEntity, rgbToHs } from '../src/mapping.ts';
+import { commandPayload, entityCommands, hsToRgb, planEntity, rgbToHs, stateToUpdates } from '../src/mapping.ts';
 
 class FakeEntity extends EventEmitter {
   commands: Record<string, unknown>[] = [];
@@ -94,4 +94,39 @@ test('mapping details', () => {
     const { r, g, b } = hsToRgb(h, s);
     assert.deepEqual(rgbToHs(r, g, b), { h, s });
   }
+});
+
+test('covers, fans, climate and locks', () => {
+  const base = { key: 1, objectId: 'x', name: 'x' };
+  const cover = { ...base, supportsPosition: true, supportsStop: true, deviceClass: 'garage' };
+  const coverPlan = planEntity('Cover', cover)!;
+  assert.equal(coverPlan.deviceType, 'cover.garage');
+  assert.deepEqual(entityCommands('Cover', coverPlan, cover), { windowCovering: ['open', 'close', 'stop', 'goToPosition'] });
+  assert.deepEqual(stateToUpdates('Cover', coverPlan, cover, { position: 0.4, currentOperation: 1 }), [{ capability: 'windowCovering', attributes: { currentPosition: 40, operationalStatus: 'opening' } }]);
+  assert.deepEqual(commandPayload('Cover', 'windowCovering', 'goToPosition', { position: 25 }, {}, cover), { position: 0.25 });
+  assert.deepEqual(commandPayload('Cover', 'windowCovering', 'stop', {}, {}, cover), { stop: true });
+
+  const fan = { ...base, supportsSpeed: true, supportedSpeedCount: 3 };
+  const fanPlan = planEntity('Fan', fan)!;
+  assert.deepEqual(stateToUpdates('Fan', fanPlan, fan, { state: true, speedLevel: 2 })[1], { capability: 'fanControl', attributes: { percentCurrent: 67, fanMode: 'medium' } });
+  assert.deepEqual(commandPayload('Fan', 'fanControl', 'setPercent', { percent: 50 }, {}, fan), { state: true, speedLevel: 2 });
+  assert.deepEqual(commandPayload('Fan', 'fanControl', 'setMode', { mode: 'off' }, {}, fan), { state: false });
+  assert.deepEqual(commandPayload('Fan', 'onOff', 'toggle', {}, { on: true }, fan), { state: false });
+
+  const ac = { ...base, supportedModesList: [0, 2, 3, 6], visualMinTemperature: 16, visualMaxTemperature: 30 };
+  const acPlan = planEntity('Climate', ac)!;
+  assert.equal(acPlan.deviceType, 'climate.airConditioner');
+  assert.deepEqual(stateToUpdates('Climate', acPlan, ac, { mode: 2, currentTemperature: 25.04, targetTemperature: 22, action: 2 }), [
+    { capability: 'thermostat', attributes: { systemMode: 'cool', supportedModes: 'off,cool,heat,auto', localTemperature: 25, targetTemperature: 22, runningState: 'cooling', minSetpoint: 16, maxSetpoint: 30 } },
+  ]);
+  assert.deepEqual(commandPayload('Climate', 'thermostat', 'setSystemMode', { mode: 'heat' }, {}, ac), { mode: 3 });
+  assert.deepEqual(commandPayload('Climate', 'thermostat', 'setSystemMode', { mode: 'auto' }, {}, ac), { mode: 6 });
+  assert.throws(() => commandPayload('Climate', 'thermostat', 'setSystemMode', { mode: 'dry' }, {}, ac), /does not support/);
+  assert.deepEqual(commandPayload('Climate', 'thermostat', 'setSystemMode', { mode: 'auto' }, {}, { ...ac, supportedModesList: [0, 1] }), { mode: 1 }, 'heat_cool stands in for auto');
+
+  const lock = { ...base };
+  const lockPlan = planEntity('Lock', lock)!;
+  assert.deepEqual(stateToUpdates('Lock', lockPlan, lock, { state: 3 }), [{ capability: 'doorLock', attributes: { lockState: 'jammed' } }]);
+  assert.deepEqual(commandPayload('Lock', 'doorLock', 'unlock', {}, {}, lock), { command: 0 });
+  assert.throws(() => commandPayload('Lock', 'doorLock', 'lock', {}, {}, { ...lock, requiresCode: true }), /requires a code/);
 });

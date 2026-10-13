@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { defineAdapter, type PluginContext, type PluginDefinition, type PluginDevice } from '@livynq/sdk';
-import { commandPayload, planEntity, stateToUpdates, type EndpointPlan, type EsphomeEntityConfig } from './mapping.ts';
+import { commandPayload, entityCommands, planEntity, stateToUpdates, type EndpointPlan, type EsphomeEntityConfig } from './mapping.ts';
 
 /**
  * ESPHome native API adapter.
@@ -110,16 +110,14 @@ async function runNode(ctx: PluginContext, createClient: ClientFactory, cfg: Dev
       };
       b.entity.on('state', apply);
       if (b.entity.state) apply(b.entity.state);
-      for (const capability of b.plan.capabilities) {
-        if (!['onOff', 'levelControl', 'colorControl'].includes(capability)) continue;
-        const commands = capability === 'onOff' ? ['on', 'off', 'toggle'] : capability === 'levelControl' ? ['moveToLevel'] : ['moveToColorTemperature', 'moveToHueAndSaturation'];
+      for (const [capability, commands] of Object.entries(entityCommands(b.type, b.plan, b.config))) {
         dev.handle(
           b.endpointId,
           capability,
           Object.fromEntries(
             commands.map((command) => [
               command,
-              (params: Record<string, unknown>) => b.entity.command(commandPayload(b.type, capability, command, params, { on: dev.get(b.endpointId, 'onOff', 'onOff') === true })),
+              (params: Record<string, unknown>) => b.entity.command(commandPayload(b.type, capability, command, params, { on: dev.get(b.endpointId, 'onOff', 'onOff') === true }, b.config)),
             ]),
           ),
         );

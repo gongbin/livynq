@@ -11,6 +11,20 @@ export interface EsphomeEntityConfig {
   minMireds?: number;
   maxMireds?: number;
   disabledByDefault?: boolean;
+  // Cover
+  supportsPosition?: boolean;
+  supportsTilt?: boolean;
+  supportsStop?: boolean;
+  // Fan
+  supportsSpeed?: boolean;
+  supportedSpeedCount?: number;
+  // Climate
+  supportedModesList?: number[];
+  supportsTwoPointTargetTemperature?: boolean;
+  visualMinTemperature?: number;
+  visualMaxTemperature?: number;
+  // Lock
+  requiresCode?: boolean;
 }
 
 export interface EndpointPlan {
@@ -71,10 +85,62 @@ export function planEntity(type: string, config: EsphomeEntityConfig): EndpointP
         default:
           return undefined;
       }
+    case 'Cover':
+      return {
+        deviceType: config.deviceClass === 'garage' ? DeviceTypes.GarageDoor.id : config.deviceClass === 'gate' ? DeviceTypes.Gate.id : DeviceTypes.WindowCovering.id,
+        capabilities: ['windowCovering'],
+      };
+    case 'Fan':
+      return { deviceType: DeviceTypes.Fan.id, capabilities: ['onOff', 'fanControl'] };
+    case 'Climate': {
+      const modes = config.supportedModesList ?? [];
+      return { deviceType: modes.includes(2) ? DeviceTypes.AirConditioner.id : DeviceTypes.Thermostat.id, capabilities: ['thermostat'] };
+    }
+    case 'Lock':
+      return { deviceType: DeviceTypes.DoorLock.id, capabilities: ['doorLock'] };
     default:
       return undefined;
   }
 }
+
+// ClimateMode in api.proto: 0 off, 1 heat_cool, 2 cool, 3 heat, 4 fan_only, 5 dry, 6 auto
+const CLIMATE_MODES: Record<number, string> = { 0: 'off', 1: 'auto', 2: 'cool', 3: 'heat', 4: 'fan_only', 5: 'dry', 6: 'auto' };
+const CLIMATE_ACTIONS: Record<number, string> = { 2: 'cooling', 3: 'heating', 5: 'drying', 6: 'fan' };
+const LOCK_STATES: Record<number, string> = { 1: 'locked', 2: 'unlocked', 3: 'jammed' };
+
+/** Commands an entity accepts, per capability (for handler registration). */
+export function entityCommands(type: string, plan: EndpointPlan, config: EsphomeEntityConfig): Record<string, string[]> {
+  switch (type) {
+    case 'Light':
+    case 'Switch': {
+      const out: Record<string, string[]> = { onOff: ['on', 'off', 'toggle'] };
+      if (plan.capabilities.includes('levelControl')) out.levelControl = ['moveToLevel'];
+      if (plan.capabilities.includes('colorControl')) out.colorControl = ['moveToColorTemperature', 'moveToHueAndSaturation'];
+      return out;
+    }
+    case 'Cover':
+      return {
+        windowCovering: [
+          'open',
+          'close',
+          ...(config.supportsStop !== false ? ['stop'] : []),
+          ...(config.supportsPosition ? ['goToPosition'] : []),
+          ...(config.supportsTilt ? ['goToTilt'] : []),
+        ],
+      };
+    case 'Fan':
+      return { onOff: ['on', 'off', 'toggle'], fanControl: ['setPercent', 'setMode'] };
+    case 'Climate':
+      return { thermostat: config.supportsTwoPointTargetTemperature ? ['setSystemMode', 'setTemperatureRange'] : ['setSystemMode', 'setTargetTemperature'] };
+    case 'Lock':
+      return { doorLock: ['lock', 'unlock'] };
+  }
+  return {};
+}
+
+const pct = (v: unknown) => Math.max(0, Math.min(100, Math.round(Number(v) * 100)));
+const fanPercent = (level: number, count: number) => (count > 0 ? Math.round((level / count) * 100) : 100);
+const fanMode = (percent: number) => (percent === 0 ? 'off' : percent <= 34 ? 'low' : percent <= 67 ? 'medium' : 'high');
 
 export type Update = { capability: string; attributes: Record<string, AttributeValue> };
 
@@ -130,13 +196,88 @@ export function stateToUpdates(type: string, plan: EndpointPlan, config: Esphome
       // ESPHome/HA: door "on" = open. Matter BooleanState: true = contact closed.
       return [{ capability: 'booleanState', attributes: { stateValue: plan.deviceType === DeviceTypes.ContactSensor.id ? !on : on } }];
     }
+    case 'Cover': {
+      // position: 0 = closed, 1 = open (also without position support)
+      const op = Number(state.currentOperation ?? 0);
+      const attributes: Record<string, AttributeValue> = { currentPosition: pct(state.position), operationalStatus: op === 1 ? 'opening' : op === 2 ? 'closing' : 'stopped' };
+      if (config.supportsTilt && typeof state.tilt === 'number') attributes.currentTilt = pct(state.tilt);
+      return [{ capability: 'windowCovering', attributes }];
+    }
+    case 'Fan': {
+      const on = Boolean(state.state);
+      const percent = on ? (config.supportsSpeed ? fanPercent(Number(state.speedLevel ?? 0), config.supportedSpeedCount ?? 0) : 100) : 0;
+      return [
+        { capability: 'onOff', attributes: { onOff: on } },
+        { capability: 'fanControl', attributes: { percentCurrent: percent, fanMode: !on ? 'off' : config.supportsSpeed ? fanMode(percent) : 'on' } },
+      ];
+    }
+    case 'Climate': {
+      const attributes: Record<string, AttributeValue> = {};
+      const mode = CLIMATE_MODES[Number(state.mode ?? 0)];
+      if (mode) attributes.systemMode = mode;
+      const modes = [...new Set((config.supportedModesList ?? []).map((m) => CLIMATE_MODES[m]).filter(Boolean))];
+      if (modes.length) attributes.supportedModes = modes.join(',');
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10) / 10 : undefined);
+      if (num(state.currentTemperature) !== undefined) attributes.localTemperature = num(state.currentTemperature)!;
+      if (config.supportsTwoPointTargetTemperature) {
+        if (num(state.targetTemperatureLow) !== undefined) attributes.targetTemperatureLow = num(state.targetTemperatureLow)!;
+        if (num(state.targetTemperatureHigh) !== undefined) attributes.targetTemperatureHigh = num(state.targetTemperatureHigh)!;
+      } else if (num(state.targetTemperature) !== undefined) attributes.targetTemperature = num(state.targetTemperature)!;
+      if (state.action !== undefined) attributes.runningState = CLIMATE_ACTIONS[Number(state.action)] ?? 'idle';
+      if (config.visualMinTemperature) attributes.minSetpoint = config.visualMinTemperature;
+      if (config.visualMaxTemperature) attributes.maxSetpoint = config.visualMaxTemperature;
+      return [{ capability: 'thermostat', attributes }];
+    }
+    case 'Lock':
+      return [{ capability: 'doorLock', attributes: { lockState: LOCK_STATES[Number(state.state ?? 0)] ?? 'unknown' } }];
   }
   return [];
 }
 
-/** Livynq command → ESPHome LightCommandRequest / SwitchCommandRequest fields. */
-export function commandPayload(type: string, capability: string, command: string, params: Record<string, unknown>, current: { on?: boolean }): Record<string, unknown> {
+/** Livynq command → ESPHome *CommandRequest fields. */
+export function commandPayload(
+  type: string,
+  capability: string,
+  command: string,
+  params: Record<string, unknown>,
+  current: { on?: boolean },
+  config: EsphomeEntityConfig = { key: 0, objectId: '', name: '' },
+): Record<string, unknown> {
   const transition = params.transitionTime === undefined ? {} : { transitionLength: Number(params.transitionTime) * 100 };
+  switch (`${type}:${capability}.${command}`) {
+    case 'Cover:windowCovering.open':
+      return { position: 1 };
+    case 'Cover:windowCovering.close':
+      return { position: 0 };
+    case 'Cover:windowCovering.stop':
+      return { stop: true };
+    case 'Cover:windowCovering.goToPosition':
+      return { position: Math.max(0, Math.min(100, Number(params.position))) / 100 };
+    case 'Cover:windowCovering.goToTilt':
+      return { tilt: Math.max(0, Math.min(100, Number(params.tilt))) / 100 };
+    case 'Fan:fanControl.setPercent':
+    case 'Fan:fanControl.setMode': {
+      const count = config.supportedSpeedCount ?? 0;
+      const percent = command === 'setPercent' ? Number(params.percent) : ({ off: 0, low: 33, medium: 66, high: 100, on: 100, auto: 100 } as Record<string, number>)[String(params.mode)] ?? 100;
+      if (percent <= 0) return { state: false };
+      return config.supportsSpeed && count > 0 ? { state: true, speedLevel: Math.max(1, Math.round((percent / 100) * count)) } : { state: true };
+    }
+    case 'Climate:thermostat.setSystemMode': {
+      const modes = config.supportedModesList ?? [];
+      const want = String(params.mode);
+      const value = want === 'auto' ? (modes.includes(6) || !modes.includes(1) ? 6 : 1) : Number(Object.entries(CLIMATE_MODES).find(([k, m]) => m === want && k !== '1')?.[0]);
+      if (!Number.isFinite(value) || (modes.length && !modes.includes(value))) throw new Error(`This device does not support mode ${want}`);
+      return { mode: value };
+    }
+    case 'Climate:thermostat.setTargetTemperature':
+      return { targetTemperature: Number(params.temperature) };
+    case 'Climate:thermostat.setTemperatureRange':
+      return { targetTemperatureLow: Number(params.low), targetTemperatureHigh: Number(params.high) };
+    case 'Lock:doorLock.lock':
+    case 'Lock:doorLock.unlock':
+      if (config.requiresCode) throw new Error('This lock requires a code; control it from ESPHome');
+      return { command: command === 'lock' ? 1 : 0 };
+  }
   if (capability === 'onOff') {
     const state = command === 'on' ? true : command === 'off' ? false : !current.on;
     return { state };
