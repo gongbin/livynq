@@ -131,8 +131,8 @@ test('modes: single ignores, queued queues; repeat/if/stop; errors are traced', 
 test('validation, versions, enable/disable, automation.* actions and webhooks', async () => {
   const { home, engine } = await setup();
   assert.throws(
-    () => engine.save({ alias: 'x', triggers: [{ trigger: 'time', at: '07:00' }], actions: [{ action: 'notify.mobile', data: { message: 'hi' } }] }, 'test'),
-    (e: LivynqError) => e.code === 'INVALID_PARAMS' && /notify.mobile" is not supported yet/.test(e.message),
+    () => engine.save({ alias: 'x', triggers: [{ trigger: 'time', at: '07:00' }], actions: [{ action: 'tts.speak', data: { message: 'hi' } }] }, 'test'),
+    (e: LivynqError) => e.code === 'INVALID_PARAMS' && /tts.speak" is not supported yet/.test(e.message),
   );
   const v = engine.validate({ alias: 'x', triggers: [{ trigger: 'nope' }], actions: [{ action: 'light.blink' }, { action: 'light.turn_on', target: { entity_id: 'light.ghost' } }] });
   assert.deepEqual(v.errors.slice(-1), ['actions[0].action: "light.blink" is not supported yet'], 'reported together with schema errors');

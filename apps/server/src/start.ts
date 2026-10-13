@@ -1,7 +1,9 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
-import pino from 'pino';
+import { createServer as createHttpsServer } from 'node:https';
+import type { FastifyInstance } from 'fastify';
+import pino, { type Logger } from 'pino';
 import { DemoAdapter, Home, writeAutomaticBackup } from '@livynq/core';
 import { MqttAdapter, startBuiltinBroker } from '@livynq/adapter-mqtt';
 import { HomeKitExporter } from '@livynq/exporter-homekit';
@@ -95,6 +97,7 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
   const app = await createServer(home, { logger, config, bundledPlugins: options.bundledPlugins });
   await home.start();
   await app.listen({ host: config.server.host, port: config.server.port });
+  if (config.server.https) closers.push(await listenHttps(app, config.server.host, config.server.https, logger));
 
   const firstRun = ensureCliToken(home, config.dataDir);
   const url = `http://${lanAddress() ?? 'localhost'}:${config.server.port}`;
@@ -145,6 +148,15 @@ function ensureCliToken(home: Home, dataDir: string): string | undefined {
   writeFileSync(file, `${token}\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
   return token;
+}
+
+/** Second listener with TLS, routed into the same Fastify app (HTTP and WebSocket upgrades). */
+async function listenHttps(app: FastifyInstance, host: string, tls: { port: number; cert: string; key: string }, logger: Logger): Promise<() => Promise<void>> {
+  const server = createHttpsServer({ cert: readFileSync(tls.cert), key: readFileSync(tls.key) }, (req, res) => app.routing(req, res));
+  server.on('upgrade', (req, socket, head) => app.server.emit('upgrade', req, socket, head));
+  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(tls.port, host, () => resolve()));
+  logger.info({ port: tls.port }, 'https listening');
+  return () => new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 function lanAddress(): string | undefined {

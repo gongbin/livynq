@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import {
   type DeviceId,
 } from '@livynq/model';
 import type { Adapter, AdapterContext, CommandHandler, DeviceHandle, Exporter } from './adapter.ts';
-import { EventBus } from './event-bus.ts';
+import { EventBus, type HomeNotification } from './event-bus.ts';
 import { LivynqError } from './errors.ts';
 import { silentLogger, type Logger } from './logger.ts';
 import { Registry } from './registry.ts';
@@ -226,6 +227,26 @@ export class Home {
         this.#handlers.set(`${id}/${endpointId}/${capability}`, { adapter: adapterId, handlers });
       },
     };
+  }
+
+  // ---------------------------------------------------------------- notifications
+
+  /** Sends a message to people: open web UIs and subscribed phones (Web Push). */
+  notify(n: { title?: string; message: string; url?: string; tag?: string; kind?: HomeNotification['kind'] }, source: string): HomeNotification {
+    if (!n.message?.trim()) throw new LivynqError('INVALID_PARAMS', 'message is required');
+    const notification: HomeNotification = {
+      id: randomUUID(),
+      message: n.message.slice(0, 1000),
+      ...(n.title ? { title: n.title.slice(0, 200) } : {}),
+      ...(n.url ? { url: n.url } : {}),
+      ...(n.tag ? { tag: n.tag } : {}),
+      kind: n.kind ?? 'message',
+      source,
+      ts: Date.now(),
+    };
+    this.log.info({ title: notification.title, source }, 'notification');
+    this.bus.emit('notification', notification);
+    return notification;
   }
 
   // ---------------------------------------------------------------- commands

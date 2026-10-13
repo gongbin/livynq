@@ -1,4 +1,5 @@
-import { accessSync, constants, existsSync, readdirSync, statSync, statfsSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
+import { accessSync, constants, existsSync, readFileSync, readdirSync, statSync, statfsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
@@ -116,6 +117,21 @@ export async function runDoctor(config: LivynqConfig, deps: DoctorDeps = {}): Pr
     if (offline.length) add('devices', 'warn', `${offline.length} of ${devices.length} offline: ${offline.slice(0, 5).map((d) => d.name).join(', ')}${offline.length > 5 ? ', …' : ''}`);
     else add('devices', 'ok', `${devices.length} devices, all reachable`);
   }
+
+  // HTTPS (needed for push notifications and installing the web app on phones)
+  const tls = config.server.https;
+  if (tls) {
+    try {
+      const cert = new X509Certificate(readFileSync(tls.cert));
+      readFileSync(tls.key);
+      const days = Math.floor((Date.parse(cert.validTo) - now) / DAY);
+      if (days < 0) add('https', 'fail', `certificate expired on ${cert.validTo}`, 'Renew it (e.g. tailscale cert / certbot) and restart Livynq');
+      else if (days < 14) add('https', 'warn', `certificate expires in ${days} days`, 'Renew it and restart Livynq');
+      else add('https', 'ok', `port ${tls.port}, ${cert.subject.replace(/\n/g, ', ')}, valid ${days} more days`);
+    } catch (err) {
+      add('https', 'fail', `cannot read the certificate or key: ${(err as Error).message}`, 'Check server.https.cert / key in livynq.yaml');
+    }
+  } else add('https', 'warn', 'off', 'Phones need https for push notifications; see server.https in the README');
 
   // Serial sticks named in plugin configs
   for (const p of config.plugins) {

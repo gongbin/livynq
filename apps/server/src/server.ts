@@ -6,7 +6,7 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, t
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
-import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type TokenInfo, type TokenScope } from '@livynq/core';
+import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type HomeNotification, type TokenInfo, type TokenScope } from '@livynq/core';
 import type { Availability, CommandBody, Device, ExposurePolicy, Level, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
 import { VERSION } from './version.ts';
@@ -15,6 +15,8 @@ import { registerImportRoutes } from './routes/imports.ts';
 import { registerUiRoutes, wallSettings } from './routes/ui.ts';
 import { registerOnboardingRoutes } from './routes/onboarding.ts';
 import { registerSpaceRoutes } from './routes/spaces.ts';
+import { registerPushRoutes } from './routes/push.ts';
+import { PushService } from './push.ts';
 import type { LivynqConfig } from './config.ts';
 import type { PluginDefinition } from '@livynq/sdk';
 import type { PluginRuntimeInfo } from '@livynq/plugin-host';
@@ -36,6 +38,8 @@ export interface ServerOptions {
   /** Lets the "Add device" wizard enable plugins and persist them. */
   config?: LivynqConfig;
   bundledPlugins?: Record<string, PluginDefinition>;
+  /** Web Push sender (tests inject one with a fake push service). */
+  push?: PushService;
 }
 
 /**
@@ -239,6 +243,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerUiRoutes(app, home, { read, admin });
   registerSpaceRoutes(app, home, { read, admin });
   registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, bundledPlugins: options.bundledPlugins });
+  registerPushRoutes(app, home, options.push ?? new PushService(home), { read, control });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {
@@ -275,6 +280,11 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
           return send({ type: 'confirmation', confirmation: payload as Confirmation });
         case 'levels.changed':
           return send({ type: 'levels', levels: payload as Level[] });
+        case 'notification': {
+          const n = payload as HomeNotification;
+          if (n.kind === 'confirmation' && auth.scope !== 'admin') return;
+          return send({ type: 'notification', notification: n });
+        }
         case 'settings':
           if ((payload as { key: string }).key === 'ui.wall') send({ type: 'settings', wall: wallSettings(home) });
           return;

@@ -50,8 +50,29 @@ export type WsServerMessage =
   | { type: 'confirmation'; confirmation: ConfirmationDTO }
   | { type: 'settings'; wall: WallSettings }
   | { type: 'levels'; levels: Level[] }
+  | { type: 'notification'; notification: NotificationDTO }
   | { type: 'result'; id: number; ok: true }
   | { type: 'result'; id: number; ok: false; error: ApiErrorBody['error'] };
+
+/** A message for people (automation notify.notify, approval requests). */
+export interface NotificationDTO {
+  id: string;
+  title?: string;
+  message: string;
+  url?: string;
+  tag?: string;
+  kind: 'message' | 'confirmation';
+  source: string;
+  ts: number;
+}
+
+/** `GET /api/v1/push`: Web Push setup for this hub. */
+export interface PushInfo {
+  /** VAPID application server key (base64url) for PushManager.subscribe */
+  publicKey: string;
+  /** Devices subscribed with the calling token */
+  subscriptions: { endpoint: string; name: string; createdAt: number; lastError?: string }[];
+}
 
 export type WsClientMessage = { type: 'command'; id: number; deviceId: string; endpointId: number } & CommandBody;
 

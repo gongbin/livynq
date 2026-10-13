@@ -30,6 +30,8 @@ const SUPPORTED: Record<string, string[]> = {
   climate: ['set_temperature', 'set_hvac_mode', 'turn_on', 'turn_off'],
   fan: ['turn_on', 'turn_off', 'toggle', 'set_percentage', 'set_preset_mode'],
   lock: ['lock', 'unlock'],
+  // HA spells per-phone targets notify.mobile_app_<name>; every notify.* goes to all subscribed devices.
+  notify: ['notify'],
 };
 
 const GENERIC_DOMAINS = new Set(['light', 'switch', 'fan']);
@@ -63,6 +65,14 @@ export function resolveTarget(home: Home, target: ServiceTarget = {}): Entity[] 
 /** Translates an HA service call into capability commands and runs them. */
 export async function callService(home: Home, call: ServiceCall, source: string): Promise<ServiceResult> {
   const [domain, service] = call.action.split('.');
+  if (domain === 'notify' && service) {
+    const data = call.data ?? {};
+    const extra = (data.data ?? {}) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
+    if (!str(data.message)) throw new LivynqError('INVALID_PARAMS', 'notify needs data.message');
+    home.notify({ message: String(data.message), title: str(data.title), url: str(extra.url) ?? str(extra.clickAction), tag: str(extra.tag) }, source);
+    return { entities: [], commands: 0 };
+  }
   if (!domain || !service || !SUPPORTED[domain]?.includes(service)) {
     throw new LivynqError('NOT_SUPPORTED', `Unsupported action ${call.action}`, `Supported: ${Object.entries(SUPPORTED).flatMap(([d, s]) => s.map((x) => `${d}.${x}`)).join(', ')}`);
   }

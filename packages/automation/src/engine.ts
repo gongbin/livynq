@@ -547,7 +547,7 @@ export class AutomationEngine implements Exporter {
       if (!value || typeof value !== 'object') return;
       const o = value as Record<string, unknown>;
       const name = o.action ?? o.service;
-      if (typeof name === 'string' && /^[a-z_]+\.[a-z_]+$/.test(name) && !supported.has(name) && o.enabled !== false) {
+      if (typeof name === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(name) && !supported.has(name) && !name.startsWith('notify.') && o.enabled !== false) {
         out.push(`${path}.action: "${name}" is not supported yet`);
       }
       for (const [k, v] of Object.entries(o)) if (k !== 'data' && k !== 'target') walk(v, path ? `${path}.${k}` : k);

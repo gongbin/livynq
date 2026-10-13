@@ -2,6 +2,21 @@ import { EventEmitter } from 'node:events';
 import type { Availability, Device, DeviceId, Level, Room, StateChange } from '@livynq/model';
 import type { Confirmation } from './confirmations.ts';
 
+/** A message for people (phone push, open UIs), e.g. from an automation's notify.notify. */
+export interface HomeNotification {
+  id: string;
+  title?: string;
+  message: string;
+  /** Path in the web UI to open when tapped, e.g. "#/devices/x" */
+  url?: string;
+  /** Replaces an earlier notification with the same tag on the phone. */
+  tag?: string;
+  /** "confirmation" notifications go to admins only. */
+  kind: 'message' | 'confirmation';
+  source: string;
+  ts: number;
+}
+
 export interface HomeEvents {
   'device.added': Device;
   'device.updated': Device;
@@ -12,6 +27,7 @@ export interface HomeEvents {
   confirmation: Confirmation;
   settings: { key: string; value: unknown };
   'levels.changed': Level[];
+  notification: HomeNotification;
 }
 
 export type HomeEventName = keyof HomeEvents;
@@ -40,7 +56,7 @@ export class EventBus {
 
   /** Subscribes to every event; used by the WebSocket API. */
   onAny(listener: <E extends HomeEventName>(event: E, payload: HomeEvents[E]) => void): () => void {
-    const names: HomeEventName[] = ['device.added', 'device.updated', 'device.removed', 'availability', 'state', 'rooms.changed', 'confirmation', 'settings', 'levels.changed'];
+    const names: HomeEventName[] = ['device.added', 'device.updated', 'device.removed', 'availability', 'state', 'rooms.changed', 'confirmation', 'settings', 'levels.changed', 'notification'];
     const offs = names.map((name) => this.on(name, (payload) => listener(name, payload)));
     return () => offs.forEach((off) => off());
   }

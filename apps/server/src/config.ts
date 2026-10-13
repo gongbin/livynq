@@ -7,7 +7,12 @@ import type { PluginEntry } from '@livynq/plugin-host';
 
 export interface LivynqConfig {
   dataDir: string;
-  server: { host: string; port: number };
+  /**
+   * `https` adds a second, TLS listener (phones only allow push notifications and installing the
+   * web app on https). Paths are relative to the data directory. The plain port keeps serving the
+   * CLI and local tools.
+   */
+  server: { host: string; port: number; https?: { port: number; cert: string; key: string } };
   demo: boolean;
   homekit: { enabled: boolean; name: string; port: number; pincode?: string; bind?: string[] };
   mqtt: { enabled: boolean; url: string; username?: string; password?: string; discoveryPrefix: string; broker: { builtin: boolean; port: number } };
@@ -51,6 +56,9 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
     server: {
       host: overrides.host ?? env.LIVYNQ_HOST ?? yaml.server?.host ?? '0.0.0.0',
       port: overrides.port ?? (env.LIVYNQ_PORT ? Number(env.LIVYNQ_PORT) : undefined) ?? yaml.server?.port ?? 8581,
+      ...(yaml.server?.https?.cert && yaml.server?.https?.key
+        ? { https: { port: Number(yaml.server.https.port ?? 8582), cert: resolve(dataDir, String(yaml.server.https.cert)), key: resolve(dataDir, String(yaml.server.https.key)) } }
+        : {}),
     },
     demo: overrides.demo ?? yaml.demo ?? false,
     homekit: {
