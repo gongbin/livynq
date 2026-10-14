@@ -1632,6 +1632,29 @@ function XiaomiAccount({ canAdmin }: { canAdmin: boolean }) {
       ) : status.signedIn ? (
         <div className="flex flex-col gap-3">
           <p className="m-0 text-[13.5px] leading-relaxed text-pretty">{t('add.xiaomi.signedInBody', { n: status.devices, region: t(`add.xiaomi.region.${status.country}` as MessageKey) })}</p>
+          <div className="flex items-center justify-between gap-3 rounded-[14px] bg-surface2 px-3.5 py-3">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-bold">{t('add.xiaomi.cloudToggle')}</span>
+              <span className="block text-xs leading-relaxed text-pretty text-muted">{t('add.xiaomi.cloudToggleHint')}</span>
+            </span>
+            <Switch
+              checked={status.cloud}
+              pending={busy === 'cloud'}
+              disabled={busy !== null}
+              label={t('add.xiaomi.cloudToggle')}
+              onChange={async (v) => {
+                setBusy('cloud');
+                try {
+                  await api.pluginAction('xiaomi', 'setCloud', { enabled: v });
+                  await refresh();
+                } catch (e) {
+                  setError(errorMessage(e));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            />
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button icon="rotateCcw" busy={busy === 'sync'} onClick={() => void run('sync')}>
               {t('add.xiaomi.sync')}

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Home } from '@livynq/core';
+import { percentToLevel } from '@livynq/sdk';
 import { InProcessPluginAdapter } from '@livynq/plugin-host';
 import plugin from '../src/index.ts';
 import { encSignature, encryptParams, rc4Decrypt, rc4Encrypt, signedNonce } from '../src/cloud.ts';
@@ -158,6 +159,7 @@ function fakeCloud(deviceList: unknown[]) {
   const ssecurity = Buffer.alloc(16, 3).toString('base64');
   let scanned = false;
   const cloudProps = new Map<string, unknown>([['blt.3.abc:2.1', 23.5]]);
+  const writes: unknown[] = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     let raw = '';
@@ -192,13 +194,14 @@ function fakeCloud(deviceList: unknown[]) {
       let result: unknown;
       if (url.pathname === '/home/device_list') result = { list: deviceList };
       else if (url.pathname === '/miotspec/prop/get') result = data.params!.map((p) => ({ ...p, code: cloudProps.has(`${p.did}:${p.siid}.${p.piid}`) ? 0 : -1, value: cloudProps.get(`${p.did}:${p.siid}.${p.piid}`) }));
-      else result = data.params!.map((p) => ({ ...p, code: 0 }));
+      else result = data.params!.map((p) => (writes.push(p), { ...p, code: 0 }));
       res.end(rc4Encrypt(sn, JSON.stringify({ code: 0, message: 'ok', result })));
     });
   });
   return {
     scan: () => (scanned = true),
     cloudProps,
+    writes,
     listen: () => new Promise<number>((r) => server.listen(0, '127.0.0.1', () => r((server.address() as AddressInfo).port))),
     close: () => server.close(),
   };
@@ -255,9 +258,25 @@ test('Xiaomi plugin: QR sign-in, local control, cloud sub-device, manual add', a
     assert.deepEqual(p.endpoints.map((e) => e.name), ['switch', 'USB']);
     await until(() => home.registry.getAttribute(p.id, p.endpoints[1]!.id, 'electricalPowerMeasurement', 'activePower') === 3.5);
 
-    // The device dies: offline after repeated failures
+    // The LAN loses the lamp: with the cloud allowed it continues through the cloud…
+    cloud.cloudProps.set('1001:2.1', true);
+    cloud.cloudProps.set('1001:2.2', 10);
     lamp.close();
+    await until(() => home.registry.getAttribute(d.id, ep, 'levelControl', 'currentLevel') === percentToLevel(10), 25_000);
+    const lampStatus = ((await home.invokeAction('xiaomi', 'devices', {}, 'test')) as { did: string; mode: string; state: string }[]).find((x) => x.did === '1001')!;
+    assert.deepEqual([lampStatus.mode, lampStatus.state], ['cloud', 'online']);
+    await home.command({ deviceId: d.id, endpointId: ep, capability: 'onOff', command: 'off' }, 'test');
+    assert.deepEqual(cloud.writes.at(-1), { did: '1001', siid: 2, piid: 1, value: false });
+    // …and is offline once the cloud has no values either.
+    cloud.cloudProps.delete('1001:2.1');
+    cloud.cloudProps.delete('1001:2.2');
     await until(() => home.registry.requireDevice(d.id).availability === 'offline', 25_000);
+
+    // Without the cloud, the gateway sub-device has no way in.
+    assert.deepEqual(await home.invokeAction('xiaomi', 'setCloud', { enabled: false }, 'test'), { cloud: false });
+    await until(() => ((home.registry.getDevice('xiaomi:blt.3.abc') && true) as boolean));
+    const after = (await home.invokeAction('xiaomi', 'devices', {}, 'test')) as { did: string; state: string }[];
+    assert.equal(after.find((x) => x.did === 'blt.3.abc')?.state, 'unsupported');
   } finally {
     await home.stop();
     plug.close();

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { defineAdapter, type PluginContext, type PluginDevice } from '@livynq/sdk';
 import { CloudError, XiaomiCloud, type CloudDevice, type Session } from './cloud.ts';
@@ -58,10 +59,25 @@ const readJson = <T>(file: string, fallback: T): T => {
 };
 const writeSecret = (file: string, value: unknown) => writeFileSync(file, JSON.stringify(value, null, 2), { mode: 0o600 });
 
+/** Explains the usual cause when a LAN device never answers: the hub is on another network. */
+function subnetHint(host: string): string | undefined {
+  const ip = host.replace(/:\d+$/, '');
+  const toInt = (a: string) => a.split('.').reduce((n, x) => (n << 8) + Number(x), 0) >>> 0;
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || ip.startsWith('127.')) return undefined;
+  const mine = Object.values(networkInterfaces())
+    .flat()
+    .filter((a): a is NonNullable<typeof a> => !!a && a.family === 'IPv4' && !a.internal);
+  if (mine.some((a) => ((toInt(a.address) ^ toInt(ip)) & toInt(a.netmask)) === 0)) return undefined;
+  return `the hub (${mine.map((a) => a.cidr ?? a.address).join(', ') || 'no LAN address'}) is not on the device's network; connect it to the same LAN, or allow the cloud`;
+}
+
 export default defineAdapter({
   async setup(ctx: PluginContext) {
     const country = typeof ctx.config.country === 'string' ? ctx.config.country : 'cn';
-    const useCloud = ctx.config.cloud === true;
+    // The cloud option can be flipped from the UI ("setCloud"); the config value is the default.
+    const settingsFile = join(ctx.dataDir, 'settings.json');
+    let useCloud = readJson<{ cloud?: boolean }>(settingsFile, {}).cloud ?? ctx.config.cloud === true;
+    const cloudReady = () => useCloud && cloud.session !== undefined;
     const pollMs = Math.max(5, Number(ctx.config.pollSeconds ?? 15)) * 1000;
     const lanTimeoutMs = Number(ctx.config.lanTimeoutMs ?? 3000);
     const sessionFile = join(ctx.dataDir, 'account.json');
@@ -86,17 +102,21 @@ export default defineAdapter({
       let closed = false;
       let failures = 0;
       let local: MiioDevice | undefined;
+      /** A LAN device temporarily controlled through the cloud because the LAN cannot reach it */
+      let fallback = false;
+      let lastLocalTry = 0;
       let device: PluginDevice | undefined;
+      const viaCloud = () => !local || fallback;
       let bound: { feature: Feature; endpointId: number }[] = [];
 
       const read = async (refs: { siid: number; piid: number }[]): Promise<Map<string, unknown>> => {
         const values = new Map<string, unknown>();
         for (let i = 0; i < refs.length; i += 15) {
           const chunk = refs.slice(i, i + 15).map((r) => ({ did: k.did, siid: r.siid, piid: r.piid }));
-          const res = local
-            ? await local.call<{ siid: number; piid: number; code: number; value?: unknown }[]>('get_properties', chunk)
-            : await cloud.getProps(chunk);
+          const res = viaCloud() ? await cloud.getProps(chunk) : await local!.call<{ siid: number; piid: number; code: number; value?: unknown }[]>('get_properties', chunk);
           for (const r of res ?? []) if (r.code === 0) values.set(`${r.siid}.${r.piid}`, r.value);
+          // The cloud answers for offline devices too, with an error code per property.
+          if (res?.length && res.every((r) => r.code !== 0)) throw new Error(`${k.name || k.model} reported no values (code ${res[0]!.code}; offline?)`);
         }
         return values;
       };
@@ -104,13 +124,25 @@ export default defineAdapter({
       const write = async (writes: PropWrite[]) => {
         if (!writes.length) return;
         const params = writes.map((w) => ({ did: k.did, siid: w.siid, piid: w.piid, value: w.value }));
-        const res = local ? await local.call<{ code: number }[]>('set_properties', params) : await cloud.setProps(params);
+        const res = viaCloud() ? await cloud.setProps(params) : await local!.call<{ code: number }[]>('set_properties', params);
         const bad = (res ?? []).find((r) => r.code !== 0);
         if (bad) throw new Error(`${k.name || k.model} refused the change (MIoT code ${bad.code})`);
       };
 
       const poll = async () => {
         if (closed || !device) return;
+        // While on the cloud fallback, try the LAN again every few minutes.
+        if (fallback && local && Date.now() - lastLocalTry > 5 * 60_000) {
+          lastLocalTry = Date.now();
+          try {
+            await local.call('miIO.info');
+            fallback = false;
+            status.mode = 'local';
+            ctx.log.info(`${k.name || k.did}: reachable on the LAN again`);
+          } catch {
+            // stay on the cloud
+          }
+        }
         try {
           const values = await read(bound.flatMap((b) => readRefs(b.feature)));
           for (const b of bound) for (const u of valuesToUpdates(b.feature, values)) device.update(b.endpointId, u.capability, u.attributes);
@@ -123,6 +155,20 @@ export default defineAdapter({
         } catch (err) {
           failures++;
           status.error = (err as Error).message;
+          if (!viaCloud() && k.host) {
+            const hint = subnetHint(k.host);
+            if (hint) status.error = `${status.error} — ${hint}`;
+            // The LAN cannot reach it: use the cloud if allowed, right away.
+            if (failures >= 2 && cloudReady()) {
+              fallback = true;
+              lastLocalTry = Date.now();
+              status.mode = 'cloud';
+              failures = 0;
+              ctx.log.info(`${k.name || k.did}: not reachable on the LAN, using the cloud`);
+              if (!closed) timer = setTimeout(() => void poll(), 0);
+              return;
+            }
+          }
           // Each call already retries once, so two failed polls in a row mean the device is gone.
           if (failures >= 2 && status.state !== 'offline') {
             status.state = 'offline';
@@ -152,7 +198,7 @@ export default defineAdapter({
         if (k.host && k.token && !k.subDevice) {
           local = new MiioDevice({ host: k.host, token: k.token, timeoutMs: lanTimeoutMs });
           status.mode = 'local';
-        } else if (useCloud && cloud.session) status.mode = 'cloud';
+        } else if (cloudReady()) status.mode = 'cloud';
         else {
           status.state = 'unsupported';
           status.error = k.subDevice ? 'gateway sub-device: enable "cloud" to use it' : 'no LAN address or token';
@@ -267,6 +313,12 @@ export default defineAdapter({
       cloud: useCloud,
       devices: runners.size,
     }));
+    ctx.actions.register('setCloud', 'Allow the cloud for devices the LAN cannot reach: { enabled }', (p) => {
+      useCloud = p.enabled === true;
+      writeFileSync(settingsFile, JSON.stringify({ cloud: useCloud }));
+      startAll();
+      return { cloud: useCloud };
+    });
     ctx.actions.register('logout', 'Forget the Xiaomi account session (devices with LAN tokens keep working)', () => {
       login.abort?.abort();
       login = { state: 'idle' };

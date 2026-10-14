@@ -844,6 +844,8 @@ const dict = {
   'add.xiaomi.region.i2': ['印度', 'India'],
   'add.xiaomi.cloud': ['允许通过云端控制网关子设备', 'Use the cloud for gateway sub-devices'],
   'add.xiaomi.cloudHint': ['蓝牙和 Zigbee 子设备（挂在小米网关下的传感器等）局域网连不上，开启后通过米家云读取和控制。Wi-Fi 设备始终走局域网。', 'Bluetooth and Zigbee sub-devices of a Xiaomi gateway are not reachable on the LAN; this reads and controls them through the Mi Home cloud. Wi-Fi devices always stay local.'],
+  'add.xiaomi.cloudToggle': ['局域网连不上时通过云端控制', 'Use the cloud when the LAN cannot reach a device'],
+  'add.xiaomi.cloudToggleHint': ['适用于网关下的蓝牙 / Zigbee 子设备，以及 Livynq 和设备不在同一网络时。能直连的设备仍走局域网，并会定期尝试切回。', 'For Bluetooth / Zigbee devices behind a gateway, and when Livynq is not on the devices’ network. Reachable devices stay local and switch back automatically.'],
   'add.xiaomi.accountTitle': ['小米账号', 'Xiaomi account'],
   'add.xiaomi.signedIn': ['已登录', 'Signed in'],
   'add.xiaomi.signIn': ['用米家 App 扫码登录', 'Sign in with the Mi Home app'],
