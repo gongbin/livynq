@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DemoAdapter, Home } from '@livynq/core';
@@ -22,3 +23,22 @@ export async function run(dir: string, port: number, mutate?: (home: Home) => vo
   return { ids, bridge, bridges, assignments };
 }
 
+/**
+ * A base port with `count` free consecutive ports, below Linux's ephemeral range (32768+), so
+ * outgoing connections elsewhere in the test run cannot take one of them in between.
+ */
+export async function freePortRange(count: number): Promise<number> {
+  const free = (port: number) =>
+    new Promise<boolean>((resolve) => {
+      const s = createServer();
+      s.once('error', () => resolve(false));
+      s.listen({ port, host: '0.0.0.0', exclusive: true }, () => s.close(() => resolve(true)));
+    });
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const base = 20000 + Math.floor(Math.random() * 10000);
+    let ok = true;
+    for (let i = 0; i < count && ok; i++) ok = await free(base + i);
+    if (ok) return base;
+  }
+  throw new Error('no free port range');
+}

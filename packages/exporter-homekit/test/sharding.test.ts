@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { run } from './run-helper.ts';
+import { freePortRange, run } from './run-helper.ts';
+
 
 test('more accessories than fit on one bridge: extra bridges with persistent assignment', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'livynq-hap-shard-'));
-  const port = 53000 + Math.floor(Math.random() * 1000);
+  const port = await freePortRange(8);
   try {
     const first = await run(dir, port, undefined, 2);
     // 11 demo accessories, 2 per bridge → 6 bridges on consecutive ports
