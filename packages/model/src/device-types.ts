@@ -1,7 +1,7 @@
 import type { CapabilityId, Risk } from './capabilities.ts';
 
 /** Home Assistant style entity domain, used for the entity view and HA compatibility. */
-export type EntityDomain = 'light' | 'switch' | 'sensor' | 'binary_sensor' | 'cover' | 'climate' | 'fan' | 'lock' | 'event';
+export type EntityDomain = 'light' | 'switch' | 'sensor' | 'binary_sensor' | 'cover' | 'climate' | 'fan' | 'lock' | 'event' | 'camera';
 
 export interface DeviceTypeDefinition {
   id: string;
@@ -41,6 +41,8 @@ export const DeviceTypes = {
   AirConditioner: define({ id: 'climate.airConditioner', matterDeviceType: 0x0072, label: 'Air Conditioner', domain: 'climate', required: ['thermostat'], optional: ['fanControl'] }),
   Fan: define({ id: 'fan.fan', matterDeviceType: 0x002b, label: 'Fan', domain: 'fan', required: ['onOff', 'fanControl'], optional: [] }),
   DoorLock: define({ id: 'lock.door', matterDeviceType: 0x000a, label: 'Door Lock', domain: 'lock', required: ['doorLock'], optional: [] }),
+  Camera: define({ id: 'camera.camera', matterDeviceType: 0x0142, label: 'Camera', domain: 'camera', required: ['camera'], optional: ['occupancySensing'] }),
+  VideoDoorbell: define({ id: 'camera.doorbell', matterDeviceType: 0x0143, label: 'Video Doorbell', domain: 'camera', required: ['camera', 'genericSwitch'], optional: ['occupancySensing'] }),
   GenericSwitch: define({ id: 'event.button', matterDeviceType: 0x000f, label: 'Button', domain: 'event', required: ['genericSwitch'], optional: [] }),
 } as const satisfies Record<string, DeviceTypeDefinition>;
 

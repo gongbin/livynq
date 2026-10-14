@@ -9,6 +9,7 @@ import type { Logger as PinoLogger } from 'pino';
 import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type HomeNotification, type TokenInfo, type TokenScope } from '@livynq/core';
 import type { Availability, CommandBody, Device, ExposurePolicy, Level, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
 import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
+import type { StreamHub } from '@livynq/media';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
@@ -19,6 +20,8 @@ import { PluginInstaller, pluginsDir } from './plugins/installer.ts';
 import { PluginManager } from './plugins/manager.ts';
 import { registerSpaceRoutes } from './routes/spaces.ts';
 import { registerPushRoutes } from './routes/push.ts';
+import { registerAssistantRoutes } from './routes/assistant.ts';
+import { createCameraHub, registerCameraRoutes } from './routes/cameras.ts';
 import { PushService } from './push.ts';
 import type { LivynqConfig } from './config.ts';
 import type { PluginDefinition } from '@livynq/sdk';
@@ -42,6 +45,8 @@ export interface ServerOptions {
   bundledPlugins?: Record<string, PluginDefinition>;
   /** Plugin lifecycle (tests inject one with a fake registry). */
   plugins?: PluginManager;
+  /** Camera stream fan-out (tests inject one with short timeouts). */
+  cameras?: StreamHub;
   /** Web Push sender (tests inject one with a fake push service). */
   push?: PushService;
 }
@@ -90,7 +95,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const header = req.headers.authorization;
     const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
     // Browsers cannot set headers on WebSocket connections or CSS images, so those may pass ?token=.
-    const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/ui/wall-background') || /^\/api\/v1\/levels\/[^/]+\/background/.test(req.url) ? (req.query as Record<string, string | undefined>).token : undefined;
+    const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/cameras/') || req.url.startsWith('/api/v1/ui/wall-background') || /^\/api\/v1\/levels\/[^/]+\/background/.test(req.url) ? (req.query as Record<string, string | undefined>).token : undefined;
     const info = home.tokens.verify(bearer ?? query);
     if (!info) throw new LivynqError('UNAUTHORIZED', 'Missing or invalid access token', 'Pass "Authorization: Bearer lvq_..."');
     return info;
@@ -248,6 +253,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, plugins });
   registerPluginRoutes(app, home, plugins, { admin });
   registerPushRoutes(app, home, options.push ?? new PushService(home), { read, control });
+  registerAssistantRoutes(app, home, api, VERSION, { read, control, admin });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {
@@ -257,6 +263,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
 
   // ------------------------------------------------------------------ WebSocket
   await app.register(fastifyWebsocket);
+  registerCameraRoutes(app, home, options.cameras ?? createCameraHub(home), { read });
   app.get('/api/v1/ws', { websocket: true, preHandler: requireScope('read') }, (socket, req) => {
     const auth = req.auth!;
     const send = (msg: WsServerMessage) => {

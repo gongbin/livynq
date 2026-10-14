@@ -15,3 +15,4 @@ export * from './backup.ts';
 export * from './confirmations.ts';
 export * from './settings.ts';
 export * from './spaces.ts';
+export * from './media.ts';

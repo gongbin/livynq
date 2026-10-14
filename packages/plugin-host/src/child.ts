@@ -78,6 +78,10 @@ export function runPluginHost(): void {
         exists: (deviceId: string) => request<boolean>({ type: 'request', method: 'deviceExists', deviceId }),
       },
       endpointId: (deviceId: string, key: string) => request<number>({ type: 'request', method: 'endpointId', deviceId, key }),
+      media: {
+        register: (deviceId, endpointId, source) => send({ type: 'media', deviceId, endpointId, source: { ...source } }),
+        unregister: (deviceId, endpointId) => send({ type: 'media', deviceId, endpointId, source: null }),
+      },
       onStop: (fn) => void stopHooks.push(fn),
       actions: {
         register: (name, description, handler) => {

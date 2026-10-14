@@ -227,3 +227,30 @@ test('API: preview, install, run, update check, upgrade, disable/enable, configu
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('file: dependencies shipped inside a package are copied from its tarball; escaping ones are refused', async () => {
+  const reg = new FakeRegistry();
+  await reg.start();
+  const dir = tmp();
+  try {
+    reg.publish('dep-x', '1.0.0', {}, { 'index.js': 'module.exports = 1' });
+    reg.publish('with-local', '1.0.0', { dependencies: { local: 'file:./lib/local', '@livynq/sdk': '^0.2.0' } }, {
+      'index.js': 'export default 1',
+      'lib/local/package.json': JSON.stringify({ name: 'local', version: '0.6.7', main: 'i.js', dependencies: { 'dep-x': '^1.0.0' } }),
+      'lib/local/i.js': 'module.exports = "local"',
+    });
+    reg.publish('escapes', '1.0.0', { dependencies: { x: 'file:../../../etc' } });
+    const installer = new PluginInstaller({ dir, hubVersion: '0.2.0', registry: reg.url });
+    const plan = await installer.resolve({ spec: 'with-local' });
+    assert.deepEqual(plan.packages.map((p) => [p.name, p.version, p.path]).sort(), [['dep-x', '1.0.0', 'node_modules/dep-x'], ['local', '0.6.7', 'node_modules/local']]);
+    await installer.install(plan);
+    const root = installer.packageDir('with-local');
+    assert.equal(readFileSync(join(root, 'node_modules', 'local', 'i.js'), 'utf8'), 'module.exports = "local"');
+    assert.ok(existsSync(join(root, 'node_modules', 'dep-x', 'index.js')));
+    assert.equal(reg.requests.filter((r) => r.endsWith('with-local/1.0.0.tgz')).length, 1, 'the tarball is downloaded once');
+    await assert.rejects(installer.resolve({ spec: 'escapes' }), /only npm can install/);
+  } finally {
+    reg.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

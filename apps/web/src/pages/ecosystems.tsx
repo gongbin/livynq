@@ -282,7 +282,7 @@ function ExposureList({ homekitEnabled }: { homekitEnabled: boolean }) {
   const { devices, rooms } = useLive();
   const canAdmin = useCan('admin');
   const [busy, setBusy] = useState<string | null>(null);
-  const list = sortDevices(Object.values(devices));
+  const list = sortDevices(Object.values(devices)).filter((d) => !d.endpoints.every((e) => e.deviceType.startsWith('camera.')));
 
   const set = (d: DeviceDTO, patch: { homekit?: boolean; matter?: boolean }) => {
     setBusy(d.id);

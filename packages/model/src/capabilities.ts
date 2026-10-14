@@ -205,6 +205,26 @@ export const GenericSwitch = define({
   risk: 'low',
 });
 
+/**
+ * A video stream the hub can show (web live view, snapshots, HomeKit). The media itself never
+ * travels through attributes: plugins hand the hub a stream source (ctx.media.register), and the
+ * hub connects to the camera and fans the video out to viewers.
+ */
+export const Camera = define({
+  id: 'camera',
+  description: 'Video camera: live view and snapshots through the hub',
+  attributes: {
+    codec: t.enum(['h264', 'h265', 'unknown']),
+    width: t.int(0, 16384),
+    height: t.int(0, 16384),
+    hasAudio: t.boolean(),
+    /** true while at least one viewer is watching (the hub holds a stream open) */
+    streaming: t.boolean(),
+  },
+  commands: {},
+  risk: 'medium',
+});
+
 export const capabilities = {
   [OnOff.id]: OnOff,
   [LevelControl.id]: LevelControl,
@@ -221,6 +241,7 @@ export const capabilities = {
   [FanControl.id]: FanControl,
   [DoorLock.id]: DoorLock,
   [GenericSwitch.id]: GenericSwitch,
+  [Camera.id]: Camera,
 } as const satisfies Record<string, CapabilityDefinition>;
 
 export type CapabilityId = keyof typeof capabilities;

@@ -7,7 +7,8 @@ import { parseYaml, templateConfig, toYaml, type TemplateId, type YamlResult } f
 import { putAutomation, reloadAutomations, useAutomations, useSummaryCtx } from '../lib/automation-store.ts';
 import { editable, type Obj } from '../lib/automation-flow.ts';
 import { deviceKind, type DeviceKind } from '../lib/devices.ts';
-import { useT } from '../lib/i18n.ts';
+import { useLang, useT } from '../lib/i18n.ts';
+import { assistantApi, takeDraft } from '../lib/assistant.ts';
 import { useLive } from '../lib/live.ts';
 import { go, hashQuery } from '../lib/router.ts';
 import { useCan } from '../lib/session.ts';
@@ -69,6 +70,9 @@ export function AutomationEditor({ id }: { id?: string }) {
   const devicesKnown = ready || status === 'closed';
   useEffect(() => {
     if (id || text !== null || !devicesKnown || list === null) return;
+    // An automation drafted by the assistant ("Open in editor").
+    const draft = hashQuery().get('draft') ? takeDraft() : null;
+    if (draft) return setText(toYaml(draft));
     const wanted = hashQuery().get('template') as TemplateId | null;
     const tpl = wanted && TEMPLATE_IDS.includes(wanted) ? wanted : 'blank';
     setText(toYaml(templateConfig(tpl, { t, devices, taken: new Set(list.map((a) => a.id)) })));
@@ -185,6 +189,7 @@ export function AutomationEditor({ id }: { id?: string }) {
           {t('auto.editor.readOnly')}
         </div>
       )}
+      {!readOnly && <DescribeBox current={id && now?.ok ? now.value : undefined} onConfig={(config) => setText(toYaml(config, Boolean(id)))} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented
           label={t('vis.tabs')}
@@ -444,6 +449,7 @@ function insert(el: HTMLTextAreaElement, text: string, start: number, end: numbe
 // ---------------------------------------------------------------- entities
 
 const kindIcon: Record<DeviceKind, IconName> = {
+  camera: 'camera',
   light: 'bulb',
   plug: 'plug',
   switch: 'toggle',
@@ -529,6 +535,81 @@ function EntityPanel({ devicesKnown }: { devicesKnown: boolean }) {
           ))
         )}
       </div>
+    </Card>
+  );
+}
+
+/** "Describe it in words": the assistant writes (or changes) the automation; nothing is saved. */
+function DescribeBox({ current, onConfig }: { current?: Obj; onConfig: (config: Obj) => void }) {
+  const t = useT();
+  const lang = useLang();
+  const canControl = useCan('control');
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string; errors?: string[] } | null>(null);
+  useEffect(() => {
+    assistantApi.settings().then((s) => setConfigured(s.configured), () => setConfigured(false));
+  }, []);
+  if (!canControl || configured === null) return null;
+  const generate = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await assistantApi.generateAutomation(text.trim(), lang, current);
+      if (r.config && !r.errors.length) {
+        onConfig(r.config);
+        setResult({ ok: true, message: `${r.explanation ? `${r.explanation} — ` : ''}${t('asst.generated')}` });
+        setText('');
+      } else setResult({ ok: false, message: t('asst.generateFailed'), errors: r.errors });
+    } catch (e) {
+      setResult({ ok: false, message: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 text-[14px] font-extrabold">
+        <Icon name="sparkles" size={16} className="text-amber-ink" />
+        {t('asst.describeTitle')}
+      </div>
+      {!configured ? (
+        <p className="m-0 text-[13px] text-muted">{t('asst.notConfiguredShort')}</p>
+      ) : (
+        <form
+          className="flex flex-col gap-2.5 sm:flex-row sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim() && !busy) void generate();
+          }}
+        >
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (text.trim() && !busy) void generate();
+              }
+            }}
+            rows={2}
+            maxLength={1000}
+            placeholder={current ? t('asst.describeEdit') : t('asst.describeNew')}
+            aria-label={t('asst.describeTitle')}
+            className="min-h-16 flex-1 resize-y rounded-ctl border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-muted focus:border-amber-ink"
+          />
+          <Button type="submit" variant="amber" icon="sparkles" busy={busy} disabled={!text.trim()}>
+            {busy ? t('asst.generating') : t('asst.generate')}
+          </Button>
+        </form>
+      )}
+      {result && (
+        <div className={cx('rounded-[12px] px-3 py-2 text-[13px] leading-relaxed', result.ok ? 'bg-ok-soft' : 'bg-alert-soft text-alert')}>
+          {result.message}
+          {result.errors?.length ? <ul className="m-0 mt-1 pl-4">{result.errors.slice(0, 5).map((e) => <li key={e}>{e}</li>)}</ul> : null}
+        </div>
+      )}
     </Card>
   );
 }

@@ -35,7 +35,7 @@ export interface McpOptions {
 
 class ToolError extends Error {}
 
-const INSTRUCTIONS = `Livynq is a local smart home hub. Start with home_overview, then list_devices to find targets.
+export const INSTRUCTIONS = `Livynq is a local smart home hub. Start with home_overview, then list_devices to find targets.
 Targets accept an entity id (light.living_room_ceiling), a device id (zigbee:0x...), a device name or alias.
 Prefer the high-level actions of control_device (turn_on, set_brightness...). Devices marked readOnly cannot be controlled.
 Every command is recorded in the audit log with this client's name.
@@ -176,10 +176,18 @@ const controlTool: Tool = {
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, title: 'Control device' },
 };
 
-export function createMcpServer(options: McpOptions): Server {
+export interface Toolbox {
+  /** Tools this token may use (read-only tokens get no control / proposal tools). */
+  tools(): Tool[];
+  /** Runs a tool; failures come back as `isError` results so a model can recover. */
+  call(name: string, args: Record<string, unknown>): Promise<CallToolResult>;
+  visible(devices: DeviceDTO[]): DeviceDTO[];
+}
+
+/** The agent tools, shared by the MCP server and Livynq's built-in assistant. */
+export function createToolbox(options: McpOptions): Toolbox {
   const { api, scope } = options;
   const canControl = scope === 'control' || scope === 'admin';
-  const server = new Server({ name: 'livynq', version: options.version }, { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS });
 
   const visible = (devices: DeviceDTO[]) => devices.filter((d) => d.exposure.agent !== 'hidden');
   const findDevice = async (target: string): Promise<DeviceDTO> => {
@@ -190,12 +198,9 @@ export function createMcpServer(options: McpOptions): Server {
     return device;
   };
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: canControl ? [...readTools, controlTool, confirmationTool, proposeTool] : readTools }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-    const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+  const call = async (name: string, args: Record<string, unknown>): Promise<CallToolResult> => {
     try {
-      switch (request.params.name) {
+      switch (name) {
         case 'home_overview': {
           const [info, rooms, devices] = await Promise.all([api.info(), api.rooms(), api.devices()]);
           const shown = visible(devices);
@@ -327,13 +332,25 @@ export function createMcpServer(options: McpOptions): Server {
           return json({ ok: true, id: info.id, enabled: false, note: 'Saved as a disabled draft. Ask the user to review and enable it in Livynq.' });
         }
         default:
-          throw new ToolError(`Unknown tool ${request.params.name}`);
+          throw new ToolError(`Unknown tool ${name}`);
       }
     } catch (err) {
       // Tool failures are reported to the model as results so it can recover (wrong target, offline...).
       return { isError: true, content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }] };
     }
-  });
+  };
+
+  return { tools: () => (canControl ? [...readTools, controlTool, confirmationTool, proposeTool] : readTools), call, visible };
+}
+
+export function createMcpServer(options: McpOptions): Server {
+  const { api } = options;
+  const toolbox = createToolbox(options);
+  const visible = toolbox.visible;
+  const server = new Server({ name: 'livynq', version: options.version }, { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS });
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolbox.tools() }));
+  server.setRequestHandler(CallToolRequestSchema, async (request) => toolbox.call(request.params.name, (request.params.arguments ?? {}) as Record<string, unknown>));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [

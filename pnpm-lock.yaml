@@ -208,12 +208,24 @@ importers:
       '@livynq/importer-homeassistant':
         specifier: workspace:*
         version: link:../../packages/importer-homeassistant
+      '@livynq/installer':
+        specifier: workspace:*
+        version: link:../../packages/installer
+      '@livynq/media':
+        specifier: workspace:*
+        version: link:../../packages/media
       '@livynq/model':
         specifier: workspace:*
         version: link:../../packages/model
+      '@livynq/plugin-camera':
+        specifier: workspace:*
+        version: link:../../plugins/camera
       '@livynq/plugin-homeassistant':
         specifier: workspace:*
         version: link:../../plugins/homeassistant
+      '@livynq/plugin-homebridge':
+        specifier: workspace:*
+        version: link:../../plugins/homebridge
       '@livynq/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
@@ -358,6 +370,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@livynq/installer':
+        specifier: workspace:*
+        version: link:../installer
       '@livynq/model':
         specifier: workspace:*
         version: link:../model
@@ -404,6 +419,22 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  packages/installer:
+    dependencies:
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
+    devDependencies:
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
+
+  packages/media:
+    dependencies:
+      '@livynq/model':
+        specifier: workspace:*
+        version: link:../model
+
   packages/model: {}
 
   packages/plugin-host:
@@ -427,6 +458,19 @@ importers:
       '@livynq/model':
         specifier: workspace:*
         version: link:../model
+
+  plugins/camera:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/esphome:
     dependencies:
@@ -462,6 +506,25 @@ importers:
       ws:
         specifier: 8.22.0
         version: 8.22.0
+
+  plugins/homebridge:
+    dependencies:
+      '@livynq/installer':
+        specifier: workspace:*
+        version: link:../../packages/installer
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      hap-nodejs:
+        specifier: ^0.14.3
+        version: 0.14.3
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/hue:
     dependencies:

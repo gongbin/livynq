@@ -63,6 +63,8 @@ export class ProcessPluginAdapter implements Adapter {
   #stopping = false;
   #restartTimer: NodeJS.Timeout | undefined;
   #crashes: number[] = [];
+  /** "endpointId/deviceId" of camera sources this plugin registered */
+  readonly #media = new Set<string>();
   #restarts = 0;
   #lastError: string | null = null;
   /** Most recent failure reported by the child before it exits (start error or error log). */
@@ -205,6 +207,19 @@ export class ProcessPluginAdapter implements Adapter {
       case 'registerAction':
         ctx.registerAction(msg.name, msg.description, (params) => this.#action(msg.name, params));
         return;
+      case 'media':
+        try {
+          if (msg.source) {
+            ctx.registerMedia(msg.deviceId, msg.endpointId, msg.source);
+            this.#media.add(`${msg.endpointId}/${msg.deviceId}`);
+          } else {
+            ctx.unregisterMedia(msg.deviceId, msg.endpointId);
+            this.#media.delete(`${msg.endpointId}/${msg.deviceId}`);
+          }
+        } catch (err) {
+          ctx.log.warn({ err: (err as Error).message, deviceId: msg.deviceId }, 'invalid camera source from plugin');
+        }
+        return;
       case 'actionResult': {
         const p = this.#invokes.get(msg.id);
         if (!p) return;
@@ -298,6 +313,12 @@ export class ProcessPluginAdapter implements Adapter {
       this.#invokes.delete(id);
     }
     for (const device of this.#ctx.knownDevices()) this.#handles.get(device.id)?.setAvailability('offline');
+    // Sources come back when the plugin registers them again after a restart.
+    for (const k of this.#media) {
+      const slash = k.indexOf('/');
+      this.#ctx.unregisterMedia(k.slice(slash + 1), Number(k.slice(0, slash)));
+    }
+    this.#media.clear();
     this.#onStarted?.();
     if (this.#stopping) {
       this.#status = 'stopped';

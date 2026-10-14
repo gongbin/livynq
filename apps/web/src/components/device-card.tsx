@@ -5,6 +5,7 @@ import { useT } from '../lib/i18n.ts';
 import { CoverBar, CoverButtons, CurrentTemp, FanSpeedSlider, LockButton, ModeChips, PressTime, RunningPill, TargetStepper, usePressFlash } from './appliance-controls.tsx';
 import { BrightnessSlider, useAnyPending, useCommand, usePending } from './device-controls.tsx';
 import { glassBackground, useGlass } from './glass.tsx';
+import { CameraSnapshot } from './camera.tsx';
 import { Icon } from './icons.tsx';
 import { Spinner, Switch, cx } from './ui.tsx';
 
@@ -30,7 +31,7 @@ export function toneStyle(v: DeviceView): { card: CSSProperties; icon: CSSProper
 }
 
 /** Cards that carry more controls take two grid columns. */
-export const isWideCard = (v: DeviceView) => v.kind === 'climate';
+export const isWideCard = (v: DeviceView) => v.kind === 'climate' || v.kind === 'camera';
 
 export function DeviceCard({ device, roomLabel, onOpen, large }: { device: DeviceDTO; roomLabel?: string; onOpen: () => void; large?: boolean }) {
   const t = useT();
@@ -51,6 +52,8 @@ export function DeviceCard({ device, roomLabel, onOpen, large }: { device: Devic
   const cardStyle: CSSProperties = glass
     ? { ...style.card, background: glassBackground(style.card.background as string | undefined, glass.opacity), borderColor: undefined }
     : style.card;
+
+  if (v.camera) return <CameraCard device={device} v={v} onOpen={onOpen} glass={Boolean(glass)} />;
 
   let extra: ReactNode = null;
   if (!offline) {
@@ -157,5 +160,42 @@ export function DeviceCard({ device, roomLabel, onOpen, large }: { device: Devic
         </div>
       )}
     </div>
+  );
+}
+
+/** Cameras: the picture is the card; name and state sit on it. */
+function CameraCard({ device, v, onOpen, glass }: { device: DeviceDTO; v: DeviceView; onOpen: () => void; glass: boolean }) {
+  const t = useT();
+  const offline = v.tone === 'offline';
+  const motion = v.tone === 'active';
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${device.name}: ${t('cam.liveView')}`}
+      className={cx(
+        'group relative col-span-2 block self-start overflow-hidden rounded-card border border-line bg-surface p-0 text-left shadow-card transition-[border-color,opacity] duration-slow hover:border-wall/40',
+        glass && 'lv-glass',
+        offline && 'opacity-65',
+        motion && 'ring-2 ring-amber',
+      )}
+    >
+      <CameraSnapshot deviceId={device.id} endpointId={v.camera!.endpointId} offline={offline} className="rounded-none">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-3.5 pt-8 pb-3 text-white">
+          <span className="min-w-0">
+            <span className="block truncate text-[14.5px] leading-snug font-bold">{device.name}</span>
+            <span className="mt-0.5 flex items-center gap-1.5 text-[12px] text-white/80">
+              {v.camera!.streaming && !offline && <span className="size-1.5 rounded-full bg-[#ff4d4d]" />}
+              {v.stateText}
+            </span>
+          </span>
+          {!offline && (
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur-sm transition-transform duration-base group-hover:scale-105">
+              <Icon name="play" size={15} />
+            </span>
+          )}
+        </span>
+      </CameraSnapshot>
+    </button>
   );
 }

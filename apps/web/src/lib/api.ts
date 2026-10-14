@@ -137,7 +137,7 @@ export type CommandResult = { ok: true } | PendingCommand;
 
 export type ConfirmationStatus = ConfirmationDTO['status'];
 
-export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'hue' | 'xiaomi' | 'homeassistant' | 'virtual';
+export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'hue' | 'xiaomi' | 'camera' | 'homebridge' | 'homeassistant' | 'virtual';
 export type OnboardingMethodId = PluginMethodId | 'mqtt';
 
 export interface PluginActionInfo {

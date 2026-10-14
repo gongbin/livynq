@@ -42,6 +42,10 @@ export class InProcessPluginAdapter implements Adapter {
         exists: async (id) => ctx.deviceExists(id),
       },
       endpointId: async (deviceId, key) => ctx.endpointId(deviceId, key),
+      media: {
+        register: (deviceId, endpointId, source) => ctx.registerMedia(deviceId, endpointId, source),
+        unregister: (deviceId, endpointId) => ctx.unregisterMedia(deviceId, endpointId),
+      },
       onStop: (fn) => void this.#stopHooks.push(fn),
       actions: { register: (name, description, handler) => ctx.registerAction(name, description, handler) },
     };

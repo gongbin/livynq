@@ -12,7 +12,7 @@
  *     },
  *   });
  */
-import type { AttributeValue, Availability, Device, DeviceDefinition } from '@livynq/model';
+import type { AttributeValue, Availability, CameraSource, Device, DeviceDefinition } from '@livynq/model';
 
 export * from '@livynq/model';
 
@@ -50,6 +50,11 @@ export interface PluginContext {
     known(): Promise<Device[]>;
     /** Whether any integration already provides this device (avoid duplicates when bridging). */
     exists(id: string): Promise<boolean>;
+  };
+  /** Camera streams for endpoints with the "camera" capability. */
+  readonly media: {
+    register(deviceId: string, endpointId: number, source: CameraSource): void;
+    unregister(deviceId: string, endpointId: number): void;
   };
   /** Stable numeric endpoint id for a plugin-specific key, persisted by the hub. */
   endpointId(deviceId: string, key: string): Promise<number>;

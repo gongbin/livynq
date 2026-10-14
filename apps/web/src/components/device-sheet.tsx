@@ -23,6 +23,7 @@ import { BrightnessSlider, ColorTempSlider, HuePicker, useCommand, usePending } 
 import { toneStyle } from './device-card.tsx';
 import { HistoryStrip } from './history.tsx';
 import { Icon } from './icons.tsx';
+import { CameraPlayer, CameraSnapshot } from './camera.tsx';
 import { Sheet } from './sheet.tsx';
 import { toast } from './toast.tsx';
 import { Button, ConfirmButton, IconButton, SectionLabel, Segmented, SelectField, Switch, SwitchTrack, TextField, cx } from './ui.tsx';
@@ -103,6 +104,8 @@ function SheetBody({ device, onClose }: { device: DeviceDTO; onClose: () => void
           {v.light.hasHue && <HuePicker device={device} light={v.light} />}
         </div>
       )}
+
+      {v.camera && (offline ? <CameraSnapshot deviceId={device.id} endpointId={v.camera.endpointId} offline /> : <CameraPlayer deviceId={device.id} endpointId={v.camera.endpointId} />)}
 
       <ApplianceControls device={device} v={v} />
 
@@ -317,6 +320,9 @@ function SettingsSection({ device }: { device: DeviceDTO }) {
         onChange={(v) => void patch('room', { roomId: v || null })}
         options={[{ value: '', label: t('dev.noRoom') }, ...rooms.map((r) => ({ value: r.id, label: r.name }))]}
       />
+      {/* Cameras are not exported to HomeKit / Matter yet: only their sensors would be. */}
+      {!device.endpoints.every((e) => e.deviceType.startsWith('camera.')) && (
+      <>
       <div className="flex items-center justify-between gap-3 py-1">
         <span className="flex items-center gap-2 text-sm font-bold">
           <Icon name="home" size={16} className="text-muted" />
@@ -331,6 +337,8 @@ function SettingsSection({ device }: { device: DeviceDTO }) {
         </span>
         <Switch checked={device.exposure.matter !== false} pending={busy === 'exposure'} disabled={!canAdmin} label={t('dev.exposeMatter')} onChange={(matter) => setExposure({ matter })} />
       </div>
+      </>
+      )}
       <div className="flex flex-col gap-2">
         <span className="flex items-center gap-2 text-sm font-bold">
           <Icon name="bot" size={16} className="text-muted" />

@@ -1,7 +1,7 @@
 import type { CapabilityId } from './capabilities.ts';
 
 export type DeviceId = string;
-export type Protocol = 'matter' | 'zigbee' | 'zwave' | 'mqtt' | 'esphome' | 'shelly' | 'hue' | 'xiaomi' | 'homekit' | 'ble' | 'lan' | 'ha' | 'virtual';
+export type Protocol = 'matter' | 'zigbee' | 'zwave' | 'mqtt' | 'esphome' | 'shelly' | 'hue' | 'xiaomi' | 'homebridge' | 'homekit' | 'ble' | 'lan' | 'ha' | 'virtual';
 export type Availability = 'online' | 'offline' | 'unknown';
 export type AttributeValue = boolean | number | string | null;
 

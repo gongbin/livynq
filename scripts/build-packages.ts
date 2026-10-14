@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const tsc = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 
 /** In dependency order. */
-export const PUBLISHED = ['packages/model', 'packages/sdk', ...readdirSync(join(root, 'plugins')).sort().map((d) => `plugins/${d}`)];
+export const PUBLISHED = ['packages/model', 'packages/sdk', 'packages/installer', ...readdirSync(join(root, 'plugins')).sort().map((d) => `plugins/${d}`)];
 
 const built = new Map<string, string>(); // package name -> dist/index.d.ts
 

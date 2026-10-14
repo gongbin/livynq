@@ -106,3 +106,38 @@ test('official virtual plugin, in-process: config-driven switches with persisted
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const CAMERA = fileURLToPath(new URL('./fixtures/camera-plugin.ts', import.meta.url));
+
+test('camera sources flow to the hub (process and in-process), credentials split out, cleared on exit', async () => {
+  const home = new Home({ dataDir: ':memory:' });
+  const plugin = new ProcessPluginAdapter({ id: 'cams', module: CAMERA, backoffMs: [50] });
+  home.useAdapter(plugin);
+  await home.start();
+  try {
+    await until(() => home.media.list().length === 1);
+    const ep = home.registry.requireDevice('fixture:cam').endpoints[0]!.id;
+    const entry = home.media.get('fixture:cam', ep)!;
+    assert.deepEqual(entry.source, { url: 'rtsp://192.0.2.10:554/stream1', username: 'admin', password: 's:cret', snapshotUrl: 'http://192.0.2.10/snap.jpg' });
+    assert.equal(entry.adapter, 'cams');
+    await home.invokeAction('cams', 'unregister', {}, 'test');
+    await until(() => home.media.list().length === 0);
+    // A crash drops it; the restarted plugin registers it again.
+    await home.invokeAction('cams', 'crash', {}, 'test').catch(() => {});
+    await until(() => plugin.info().restarts >= 1 && home.media.list().length === 1);
+    // Removing the device removes its source.
+    home.registry.removeDevice('fixture:cam');
+    assert.equal(home.media.list().length, 0);
+  } finally {
+    await home.stop();
+  }
+  const def = (await import(CAMERA)).default;
+  const { InProcessPluginAdapter } = await import('@livynq/plugin-host');
+  const home2 = new Home({ dataDir: ':memory:' });
+  home2.useAdapter(new InProcessPluginAdapter('cams2', def));
+  await home2.start();
+  assert.equal(home2.media.list()[0]?.source.username, 'admin');
+  await home2.removeAdapter('cams2');
+  assert.equal(home2.media.list().length, 0);
+  await home2.stop();
+});

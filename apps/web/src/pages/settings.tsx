@@ -4,6 +4,7 @@ import { LangSwitch, ThemeSwitch } from '../components/shell.tsx';
 import { Badge, Button, Card, PageHeader, SectionLabel } from '../components/ui.tsx';
 import { OpenWallButton, WallSettingsForm } from '../components/wall-settings-form.tsx';
 import { NotificationsCard } from '../components/notifications-card.tsx';
+import { AssistantSettingsCard } from '../components/assistant-settings.tsx';
 import { signOut } from '../lib/api.ts';
 import { formatDuration } from '../lib/format.ts';
 import { useLang, useT, type MessageKey } from '../lib/i18n.ts';
@@ -63,6 +64,7 @@ export function SettingsPage() {
           </div>
           <WallSettingsForm />
         </Card>
+        <AssistantSettingsCard />
         <NotificationsCard />
         <Card className="flex flex-col gap-3">
           <SectionLabel>{t('settings.session')}</SectionLabel>
@@ -89,6 +91,7 @@ export function SettingsPage() {
 const moreItems: { route: Route; icon: IconName; label: MessageKey; soon?: boolean }[] = [
   { route: 'rooms', icon: 'layers', label: 'nav.rooms' },
   { route: 'automations', icon: 'workflow', label: 'nav.automations' },
+  { route: 'agents', icon: 'bot', label: 'nav.agents' },
   { route: 'migrate', icon: 'import', label: 'nav.migrate' },
   { route: 'wall', icon: 'tablet', label: 'nav.wall' },
   { route: 'plugins', icon: 'puzzle', label: 'nav.plugins' },

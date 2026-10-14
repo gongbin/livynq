@@ -12,6 +12,7 @@ import { useRoute, type Route } from './lib/router.ts';
 import { clearSession, loadSession } from './lib/session.ts';
 import { useStore } from './lib/store.ts';
 import { AgentsPage } from './pages/agents.tsx';
+import { AssistantPage } from './pages/assistant.tsx';
 import { AutomationsPage } from './pages/automations.tsx';
 import { DevicesPage } from './pages/devices.tsx';
 import { EcosystemsPage } from './pages/ecosystems.tsx';
@@ -29,6 +30,7 @@ const pages: Record<Exclude<Route, 'wall'>, ComponentType> = {
   rooms: RoomsPage,
   automations: AutomationsPage,
   agents: AgentsPage,
+  assistant: AssistantPage,
   migrate: MigratePage,
   ecosystems: EcosystemsPage,
   plugins: PluginsPage,

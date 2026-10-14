@@ -1,4 +1,4 @@
-import type { AttributeValue, Availability, Device, DeviceDefinition, DeviceId, DeviceState } from '@livynq/model';
+import type { AttributeValue, Availability, CameraSource, Device, DeviceDefinition, DeviceId, DeviceState } from '@livynq/model';
 import type { Logger } from './logger.ts';
 import type { Home } from './home.ts';
 
@@ -43,4 +43,7 @@ export interface AdapterContext {
   deviceState(id: DeviceId): DeviceState;
   /** Stable numeric endpoint id for an adapter specific key. */
   endpointId(deviceId: DeviceId, key: string): number;
+  /** Camera stream for one of this adapter's endpoints (memory only; see MediaRegistry). */
+  registerMedia(deviceId: DeviceId, endpointId: number, source: CameraSource): void;
+  unregisterMedia(deviceId: DeviceId, endpointId: number): void;
 }

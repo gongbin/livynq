@@ -10,6 +10,8 @@ import matterPlugin from '@livynq/plugin-matter';
 import shellyPlugin from '@livynq/plugin-shelly';
 import huePlugin from '@livynq/plugin-hue';
 import xiaomiPlugin from '@livynq/plugin-xiaomi';
+import cameraPlugin from '@livynq/plugin-camera';
+import homebridgePlugin from '@livynq/plugin-homebridge';
 import { bundledPlugins } from './bundled.ts';
 
 if (process.env.LIVYNQ_ROLE === 'plugin-host') {
@@ -24,5 +26,7 @@ if (process.env.LIVYNQ_ROLE === 'plugin-host') {
   bundledPlugins['@livynq/plugin-shelly'] = shellyPlugin;
   bundledPlugins['@livynq/plugin-hue'] = huePlugin;
   bundledPlugins['@livynq/plugin-xiaomi'] = xiaomiPlugin;
+  bundledPlugins['@livynq/plugin-camera'] = cameraPlugin;
+  bundledPlugins['@livynq/plugin-homebridge'] = homebridgePlugin;
   void import('./main.ts');
 }

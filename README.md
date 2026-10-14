@@ -131,6 +131,17 @@ server:
 
 原来的 http 端口继续保留给 CLI 和局域网访问；`livynq doctor` 会检查证书有效期。
 
+## 内置助手（大模型）
+
+在“设置 → 助手”里选择服务商并填写 API 地址、Key 和模型名：Claude，或任何 OpenAI 兼容接口（OpenAI、DeepSeek、通义千问、Kimi、智谱 GLM，以及本机 Ollama / LM Studio，可完全离线）。Key 只保存在主机上（`secrets/assistant.json`，仅所有者可读）。
+
+- “助手”页面：用自然语言查询和控制设备，权限与当前令牌一致，开锁等高风险操作仍需人工审批。
+- 说“每天日落时打开客厅灯”会生成自动化草稿卡片；自动化编辑器顶部也可以“用一句话描述”。生成结果都会先校验，保存与否由你决定。
+
+## 摄像头
+
+“添加设备 → 摄像头”：局域网自动发现 ONVIF 摄像头（海康、大华、TP-Link、Reolink 等），或填写 RTSP 地址。Livynq 只在有人观看时直接从摄像头拉流并转给浏览器播放，不经过云端、不需要 ffmpeg；移动 / 人形侦测会变成可用于自动化的传感器。
+
 ## 从 Home Assistant 迁移
 
 ```bash
@@ -168,6 +179,8 @@ plugins:
   - module: "@livynq/plugin-shelly"         # Shelly 二代及以上，本地 RPC，mDNS 自动发现
   - module: "@livynq/plugin-hue"            # Philips Hue 桥（本地 CLIP v2 + 事件流）
   - module: "@livynq/plugin-xiaomi"         # 米家：扫码登录一次，Wi-Fi 设备局域网直连（miIO / MIoT）
+  - module: "@livynq/plugin-camera"         # 摄像头：ONVIF 自动发现 / RTSP，移动与人形侦测
+  - module: "@livynq/plugin-homebridge"     # 直接运行 Homebridge 插件（含从 ~/.homebridge 迁移）
   - module: "@livynq/plugin-matter"         # Matter 控制器（配对码 / 二维码）
 ```
 
@@ -231,7 +244,7 @@ packages/agent         MCP 工具与 Agent 友好的设备摘要
 packages/automation    自动化引擎（HA 结构）
 packages/importer-homeassistant  HA 导入器
 packages/sdk, plugin-host        插件 SDK 与进程隔离宿主
-plugins/                官方插件：virtual、esphome、zigbee、zwave、matter、shelly、hue、xiaomi、homeassistant
+plugins/                官方插件：virtual、esphome、zigbee、zwave、matter、shelly、hue、xiaomi、camera、homebridge、homeassistant
 installers/            安装脚本
 ```
 

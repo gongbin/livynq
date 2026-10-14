@@ -1,0 +1,39 @@
+{
+  "name": "@livynq/plugin-camera",
+  "version": "0.2.0",
+  "description": "IP cameras for Livynq: ONVIF discovery, streams, snapshots, motion and person events, or plain RTSP",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "plugins/camera"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}

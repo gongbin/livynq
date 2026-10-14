@@ -1,0 +1,41 @@
+{
+  "name": "@livynq/plugin-homebridge",
+  "version": "0.2.0",
+  "description": "Homebridge compatibility for Livynq: run Homebridge plugins and use their accessories as Livynq devices",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "plugins/homebridge"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@livynq/installer": "workspace:*",
+    "@livynq/sdk": "workspace:*",
+    "hap-nodejs": "^0.14.3"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}

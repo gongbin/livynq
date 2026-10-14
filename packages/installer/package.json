@@ -1,0 +1,38 @@
+{
+  "name": "@livynq/installer",
+  "version": "0.2.0",
+  "description": "npm-free package installer used by Livynq for its plugins and Homebridge plugins: semver resolution, integrity checks, no install scripts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "packages/installer"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "7.8.0"
+  }
+}

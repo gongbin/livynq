@@ -204,6 +204,7 @@ export interface EntityOption {
 }
 
 export const KIND_ICON: Record<DeviceKind | 'automation', IconName> = {
+  camera: 'camera',
   light: 'bulb',
   plug: 'plug',
   switch: 'toggle',

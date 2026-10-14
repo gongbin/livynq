@@ -5,3 +5,4 @@ export * from './device.ts';
 export * from './units.ts';
 export * from './entity.ts';
 export * from './api.ts';
+export * from './media.ts';

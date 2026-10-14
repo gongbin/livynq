@@ -15,6 +15,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LivynqConfig } from './config.ts';
 import { createServer } from './server.ts';
+import { startDemoCamera } from './demo/camera.ts';
 import { PluginInstaller, pluginsDir } from './plugins/installer.ts';
 import { VERSION } from './version.ts';
 
@@ -41,7 +42,12 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
     const broker = await startBuiltinBroker({ port: config.mqtt.broker.port, log: logger.child({ module: 'mqtt-broker' }) });
     closers.push(broker.close);
   }
-  if (config.demo) home.useAdapter(new DemoAdapter());
+  if (config.demo) {
+    home.useAdapter(new DemoAdapter());
+    const camera = await startDemoCamera();
+    home.useAdapter(camera.adapter);
+    closers.push(async () => camera.close());
+  }
   if (config.mqtt.enabled) {
     home.useAdapter(
       new MqttAdapter({ url: config.mqtt.url, username: config.mqtt.username, password: config.mqtt.password, discoveryPrefix: config.mqtt.discoveryPrefix }),

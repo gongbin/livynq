@@ -1,4 +1,4 @@
-import type { AttributeValue, Availability, Device, DeviceDefinition } from '@livynq/model';
+import type { AttributeValue, Availability, CameraSource, Device, DeviceDefinition } from '@livynq/model';
 
 /** IPC between the hub (parent) and a plugin host process (child). Requests carry an id; responses echo it. */
 
@@ -25,6 +25,7 @@ export type ChildMessage =
   | { type: 'invokeResult'; id: number; ok: true }
   | { type: 'invokeResult'; id: number; ok: false; error: string }
   | { type: 'registerAction'; name: string; description: string }
+  | { type: 'media'; deviceId: string; endpointId: number; source: CameraSource | null }
   | { type: 'actionResult'; id: number; ok: true; value: unknown }
   | { type: 'actionResult'; id: number; ok: false; error: string }
   | { type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string; data?: Record<string, unknown> }

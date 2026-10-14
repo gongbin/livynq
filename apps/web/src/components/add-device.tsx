@@ -8,7 +8,7 @@ import { useT, type MessageKey } from '../lib/i18n.ts';
 import { live, useLive } from '../lib/live.ts';
 import { useCan } from '../lib/session.ts';
 import { href } from '../lib/router.ts';
-import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, HuePanel, ShellyPanel, XiaomiPanel, ZWavePanel } from './add-device-methods.tsx';
+import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, HuePanel, ShellyPanel, XiaomiPanel, ZWavePanel, CameraPanel, HomebridgePanel } from './add-device-methods.tsx';
 import { toneStyle } from './device-card.tsx';
 import { DeviceSheet } from './device-sheet.tsx';
 import { Icon, type IconName } from './icons.tsx';
@@ -36,16 +36,18 @@ const METHODS: MethodMeta[] = [
   { id: 'zigbee', icon: 'usb', name: 'Zigbee', desc: 'add.m.zigbee', tags: 'Aqara · IKEA · Hue · Tuya' },
   { id: 'zwave', icon: 'activity', name: 'Z-Wave', desc: 'add.m.zwave', tags: 'Aeotec · Fibaro · Zooz · Inovelli' },
   { id: 'esphome', icon: 'cpu', name: 'ESPHome', desc: 'add.m.esphome' },
+  { id: 'camera', icon: 'camera', name: '', desc: 'add.m.camera', tags: 'ONVIF · RTSP · Hikvision · Dahua · Reolink · Tapo' },
   { id: 'xiaomi', icon: 'home', name: '米家 Xiaomi', desc: 'add.m.xiaomi', tags: 'Mi Home · Yeelight · Mijia' },
   { id: 'hue', icon: 'bulb', name: 'Philips Hue', desc: 'add.m.hue', tags: 'Hue Bridge · Friends of Hue' },
   { id: 'shelly', icon: 'zap', name: 'Shelly', desc: 'add.m.shelly', tags: 'Plus · Pro · Gen3 · Gen4' },
   { id: 'mqtt', icon: 'radio', name: 'MQTT', desc: 'add.m.mqtt', tags: 'Zigbee2MQTT · Tasmota · ESPHome' },
   { id: 'homeassistant', icon: 'home', name: 'Home Assistant', desc: 'add.m.ha' },
+  { id: 'homebridge', icon: 'puzzle', name: 'Homebridge', desc: 'add.m.homebridge', tags: '2000+ plugins' },
   { id: 'virtual', icon: 'toggle', name: '', desc: 'add.m.virtual' },
 ];
 
 export function methodName(id: OnboardingMethodId, t: (k: MessageKey) => string): string {
-  return id === 'virtual' ? t('add.virtual.name') : (METHODS.find((m) => m.id === id)?.name ?? id);
+  return id === 'virtual' ? t('add.virtual.name') : id === 'camera' ? t('add.cam.name.method') : (METHODS.find((m) => m.id === id)?.name ?? id);
 }
 
 /** What every method panel receives. */
@@ -270,7 +272,7 @@ function Chooser({ data, canAdmin, plugins }: { data: Onboarding; canAdmin: bool
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-[15.5px] font-extrabold tracking-[-0.01em]">{m.id === 'virtual' ? t('add.virtual.name') : m.name}</span>
+                  <span className="text-[15.5px] font-extrabold tracking-[-0.01em]">{m.id === 'virtual' ? t('add.virtual.name') : m.id === 'camera' ? t('add.cam.name.method') : m.name}</span>
                   {recommended && <span className="rounded-full bg-amber px-2 py-0.5 text-[10.5px] font-extrabold text-on-amber">{t('add.recommended')}</span>}
                   <StatusPill status={status} />
                 </span>
@@ -326,6 +328,10 @@ function MethodPanel(props: PanelProps) {
       return <HuePanel {...props} method={method} />;
     case 'xiaomi':
       return <XiaomiPanel {...props} method={method} />;
+    case 'camera':
+      return <CameraPanel {...props} method={method} />;
+    case 'homebridge':
+      return <HomebridgePanel {...props} method={method} />;
     case 'homeassistant':
       return <HomeAssistantPanel {...props} method={method} />;
     case 'virtual':

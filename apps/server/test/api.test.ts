@@ -149,7 +149,7 @@ test('onboarding: methods, enabling an official plugin at runtime, plugin action
   const { app, home, admin, reader, req } = await setup();
   const before = (await req('GET', '/api/v1/onboarding', reader)).json();
   assert.deepEqual(before.methods.map((m: { id: string; enabled: boolean }) => [m.id, m.enabled]), [
-    ['matter', false], ['zigbee', false], ['zwave', false], ['esphome', false], ['shelly', false], ['hue', false], ['xiaomi', false], ['homeassistant', false], ['virtual', false], ['mqtt', false],
+    ['matter', false], ['zigbee', false], ['zwave', false], ['esphome', false], ['shelly', false], ['hue', false], ['xiaomi', false], ['camera', false], ['homebridge', false], ['homeassistant', false], ['virtual', false], ['mqtt', false],
   ]);
   assert.equal((await req('POST', '/api/v1/plugins', admin, { module: 'evil-package' })).statusCode, 400);
   const enabled = await req('POST', '/api/v1/plugins', admin, { module: '@livynq/plugin-virtual', config: { switches: [{ id: 'party', name: 'Party Mode' }] } });

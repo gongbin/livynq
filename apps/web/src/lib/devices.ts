@@ -3,7 +3,7 @@ import { hueToDegrees, levelToPercent, miredsToKelvin, satToPercent } from '@liv
 import type { IconName } from '../components/icons.tsx';
 import type { MessageKey, Translate } from './i18n.ts';
 
-export type DeviceKind = 'light' | 'plug' | 'switch' | 'fan' | 'cover' | 'garage' | 'climate' | 'lock' | 'button' | 'motion' | 'contact' | 'leak' | 'sensor';
+export type DeviceKind = 'camera' | 'light' | 'plug' | 'switch' | 'fan' | 'cover' | 'garage' | 'climate' | 'lock' | 'button' | 'motion' | 'contact' | 'leak' | 'sensor';
 
 /** Tone drives card coloring: amber when "on/active", alert when something needs attention. */
 export type Tone = 'idle' | 'active' | 'alert' | 'offline';
@@ -21,6 +21,7 @@ const num = (v: AttributeValue | undefined): number | undefined => (typeof v ===
 
 export function deviceKind(d: DeviceDTO): DeviceKind {
   const types = d.endpoints.map((e) => e.deviceType);
+  if (types.some((t) => t.startsWith('camera.')) || endpointWith(d, 'camera')) return 'camera';
   if (types.includes('lock.door')) return 'lock';
   if (types.includes('cover.garage') || types.includes('cover.gate')) return 'garage';
   if (types.some((t) => t.startsWith('cover.'))) return 'cover';
@@ -278,6 +279,33 @@ export interface DeviceView {
   fan?: FanState;
   lock?: LockStateValue;
   button?: ButtonState;
+  camera?: CameraState;
+}
+
+export interface CameraState {
+  endpointId: number;
+  streaming: boolean;
+  codec?: string;
+  width?: number;
+  height?: number;
+  hasAudio: boolean;
+  doorbell: boolean;
+}
+
+export function cameraState(d: DeviceDTO): CameraState | undefined {
+  const ep = endpointWith(d, 'camera');
+  if (!ep) return undefined;
+  const c = d.state[ep.id]?.camera ?? {};
+  const num = (v: unknown) => (typeof v === 'number' && v > 0 ? v : undefined);
+  return {
+    endpointId: ep.id,
+    streaming: c.streaming === true,
+    codec: typeof c.codec === 'string' && c.codec !== 'unknown' ? c.codec : undefined,
+    width: num(c.width),
+    height: num(c.height),
+    hasAudio: c.hasAudio === true,
+    doorbell: d.endpoints.some((e) => e.deviceType === 'camera.doorbell'),
+  };
 }
 
 export function describe(d: DeviceDTO, t: Translate): DeviceView {
@@ -291,6 +319,13 @@ export function describe(d: DeviceDTO, t: Translate): DeviceView {
 function describeOnline(d: DeviceDTO, kind: DeviceKind, t: Translate): DeviceView {
   const rs = readings(d);
   switch (kind) {
+    case 'camera': {
+      const c = cameraState(d);
+      const occ = attr(d, 'occupancySensing', 'occupied') === true;
+      const res = c?.width && c.height ? `${c.height >= 2160 ? '4K' : `${c.height}p`}` : undefined;
+      const text = occ ? t('state.detected') : c?.streaming ? t('cam.live') : (res ?? t('cam.camera'));
+      return { kind, icon: c?.doorbell ? 'doorbell' : 'camera', tone: occ ? 'active' : 'idle', stateText: text, camera: c };
+    }
     case 'light': {
       const l = lightState(d);
       const on = l?.on ?? false;

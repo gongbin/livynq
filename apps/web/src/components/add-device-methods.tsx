@@ -1788,6 +1788,455 @@ function XiaomiManual({ canAdmin }: { canAdmin: boolean }) {
   );
 }
 
+// ================================================================ Cameras
+
+interface CamFound {
+  xaddr: string;
+  host: string;
+  name?: string;
+  hardware?: string;
+  added: boolean;
+}
+interface CamStatus {
+  key: string;
+  id: string | null;
+  name: string;
+  kind: 'onvif' | 'rtsp';
+  address: string;
+  state: 'connecting' | 'online' | 'offline' | 'auth' | 'error';
+  error?: string;
+  resolution?: string;
+  events: boolean;
+}
+
+export function CameraPanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  if (!method.enabled) return <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.cam.enableIntro')} onEnabled={reload} />;
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {(!health || health.status === 'running') && (
+        <>
+          {canAdmin ? <CameraAdd /> : <Note icon="lock">{t('add.adminOnlyAction')}</Note>}
+          <AddedDevices devices={added} openDevice={openDevice} />
+          {canAdmin && <CameraList />}
+        </>
+      )}
+    </>
+  );
+}
+
+function CameraAdd() {
+  const t = useT();
+  const [found, setFound] = useState<CamFound[] | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [mode, setMode] = useState<'onvif' | 'rtsp'>('onvif');
+  const [target, setTarget] = useState('');
+  const [user, setUser] = useState('admin');
+  const [pass, setPass] = useState('');
+  const [name, setName] = useState('');
+  const [stream, setStream] = useState('main');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const scan = async () => {
+    setScanning(true);
+    try {
+      setFound(await api.pluginAction<CamFound[]>('camera', 'discover', { timeoutMs: 3000 }));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setScanning(false);
+    }
+  };
+  useEffect(() => {
+    void scan();
+  }, []);
+
+  const pick = (f: CamFound) => {
+    setMode('onvif');
+    setTarget(f.xaddr);
+    setName(f.name ?? '');
+    setError(null);
+    setNote(null);
+  };
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    const v = target.trim();
+    const params: Record<string, unknown> =
+      mode === 'rtsp'
+        ? { url: v, ...(user.trim() ? { username: user.trim() } : {}), ...(pass ? { password: pass } : {}), ...(name.trim() ? { name: name.trim() } : {}) }
+        : { ...(/^https?:\/\//.test(v) ? { xaddr: v } : { host: v }), username: user.trim(), password: pass, profile: stream, ...(name.trim() ? { name: name.trim() } : {}) };
+    try {
+      const r = await api.pluginAction<{ name?: string; resolution?: string }>('camera', 'add', params);
+      setNote(t('add.cam.added', { name: r.name || name || v, res: r.resolution ?? '' }));
+      setTarget('');
+      setPass('');
+      setName('');
+      void scan();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ready = target.trim() && (mode === 'rtsp' ? /^rtsps?:\/\//i.test(target.trim()) : user.trim());
+
+  return (
+    <>
+      <Panel title={t('add.esphome.foundTitle')} icon="network" aside={<Button size="sm" icon="rotateCcw" busy={scanning} onClick={() => void scan()} aria-label={t('add.zigbee.rescan')} />}>
+        {!found ? (
+          <div className="grid place-items-center py-6 text-muted">
+            <Spinner size={18} />
+          </div>
+        ) : found.length === 0 ? (
+          <p className="m-0 text-[13px] leading-relaxed text-pretty text-muted">{t('add.cam.none')}</p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {found.map((f) => (
+              <li key={f.xaddr} className={cx('flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3', target === f.xaddr && 'ring-2 ring-amber')}>
+                <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-chip">
+                  <Icon name="camera" size={17} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold">{f.name || f.hardware || f.host}</span>
+                  <span className="block truncate font-mono text-[11.5px] text-muted">{[f.hardware, f.host].filter(Boolean).join(' · ')}</span>
+                </span>
+                {f.added ? (
+                  <Badge tone="ok">
+                    <Dot tone="ok" />
+                    {t('add.cam.addedBadge')}
+                  </Badge>
+                ) : (
+                  <Button size="sm" variant="amber" icon="plus" onClick={() => pick(f)}>
+                    {t('add.esphome.connect')}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel title={t('add.cam.formTitle')} icon="camera">
+        <form
+          className="flex flex-col gap-3.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready && !busy) void submit();
+          }}
+        >
+          <SelectField
+            label={t('add.cam.type')}
+            value={mode}
+            onChange={(v) => setMode(v as 'onvif' | 'rtsp')}
+            options={[
+              { value: 'onvif', label: t('add.cam.typeOnvif') },
+              { value: 'rtsp', label: t('add.cam.typeRtsp') },
+            ]}
+          />
+          <TextField
+            label={mode === 'rtsp' ? t('add.cam.url') : t('add.cam.address')}
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            placeholder={mode === 'rtsp' ? 'rtsp://192.168.1.70:554/stream1' : '192.168.1.64'}
+            spellCheck={false}
+            autoCapitalize="off"
+            className="[&_input]:font-mono [&_input]:text-[13px]"
+          />
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <TextField label={mode === 'rtsp' ? t('add.cam.userOptional') : t('add.cam.user')} value={user} onChange={(e) => setUser(e.target.value)} autoCapitalize="off" autoComplete="off" spellCheck={false} />
+            <TextField label={t('add.cam.password')} type="password" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="off" />
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <TextField label={t('add.cam.name')} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('add.cam.namePh')} />
+            {mode === 'onvif' && (
+              <SelectField
+                label={t('add.cam.stream')}
+                value={stream}
+                onChange={setStream}
+                options={[
+                  { value: 'main', label: t('add.cam.streamMain') },
+                  { value: 'sub', label: t('add.cam.streamSub') },
+                ]}
+              />
+            )}
+          </div>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {note && (
+            <Note icon="circleCheck" tone="ok">
+              {note}
+            </Note>
+          )}
+          <div>
+            <Button type="submit" variant="amber" icon="plus" busy={busy} disabled={!ready}>
+              {t('add.esphome.add')}
+            </Button>
+          </div>
+          <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.cam.tips')}</p>
+        </form>
+      </Panel>
+    </>
+  );
+}
+
+function CameraList() {
+  const t = useT();
+  const [list, setList] = useState<CamStatus[] | null>(null);
+  const load = async () => {
+    try {
+      setList(await api.pluginAction<CamStatus[]>('camera', 'cameras'));
+    } catch {
+      // plugin health shows errors
+    }
+  };
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await load();
+      if (!cancelled) timer = setTimeout(poll, 4000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+  if (!list?.length) return null;
+  return (
+    <Panel title={t('add.cam.listTitle', { n: list.length })} icon="list">
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {list.map((c) => (
+          <li key={c.key} className="flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{c.name || c.address}</span>
+              <span className="block truncate text-[12px] text-muted">{[c.kind === 'onvif' ? 'ONVIF' : 'RTSP', c.address, c.resolution, c.events ? t('add.cam.events') : null].filter(Boolean).join(' · ')}</span>
+              {c.error && c.state !== 'online' && <span className="block text-[12px] text-pretty text-alert">{c.error}</span>}
+            </span>
+            <Badge tone={c.state === 'online' ? 'ok' : c.state === 'connecting' ? 'chip' : 'alert'}>
+              {c.state === 'online' && <Dot tone="ok" />}
+              {t(`add.cam.state.${c.state}` as MessageKey)}
+            </Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="trash"
+              aria-label={t('add.hue.remove')}
+              onClick={async () => {
+                if (!(await confirmDialog({ title: t('add.cam.removeConfirm', { name: c.name || c.address }), confirmLabel: t('add.hue.remove'), danger: true, icon: 'trash' }))) return;
+                await api.pluginAction('camera', 'remove', { key: c.key }).catch((e: unknown) => toast(errorMessage(e), 'error'));
+                await load();
+              }}
+            />
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+// ================================================================ Homebridge
+
+interface HbPlugin {
+  name: string;
+  version: string | null;
+  loaded: boolean;
+  error?: string;
+  platforms: string[];
+  accessories: string[];
+  pendingRestart: boolean;
+}
+interface HbAccessory {
+  uuid: string;
+  name: string;
+  plugin: string;
+  state: 'online' | 'offline' | 'unsupported';
+  mapped: { kind: string; name?: string }[];
+  unsupported: string[];
+  error?: string;
+}
+
+export function HomebridgePanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  if (!method.enabled) return <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.hb.enableIntro')} onEnabled={reload} />;
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {!canAdmin ? <Note icon="lock">{t('add.adminOnlyAction')}</Note> : (!health || health.status === 'running') && <HomebridgeManager refreshPlugins={refreshPlugins} />}
+      <AddedDevices devices={added} openDevice={openDevice} />
+    </>
+  );
+}
+
+function HomebridgeManager({ refreshPlugins }: { refreshPlugins: () => Promise<void> }) {
+  const t = useT();
+  const [plugins, setPlugins] = useState<HbPlugin[] | null>(null);
+  const [report, setReport] = useState<{ accessories: HbAccessory[]; issues: { plugin?: string; message: string }[] } | null>(null);
+  const [config, setConfig] = useState('');
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+
+  const load = async () => {
+    try {
+      const [p, r, c] = await Promise.all([
+        api.pluginAction<HbPlugin[]>('homebridge', 'plugins'),
+        api.pluginAction<{ accessories: HbAccessory[]; issues: { plugin?: string; message: string }[] }>('homebridge', 'accessories'),
+        api.pluginAction<{ platforms: unknown[]; accessories: unknown[] }>('homebridge', 'config'),
+      ]);
+      setPlugins(p);
+      setReport(r);
+      setConfig((cur) => (cur && dirty ? cur : JSON.stringify({ platforms: c.platforms, accessories: c.accessories }, null, 2)));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
+    setError(null);
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  // Homebridge loads plugins and config at start, so changes apply with a restart (a few seconds).
+  const apply = () =>
+    run('restart', async () => {
+      await api.restartPlugin('homebridge');
+      await refreshPlugins();
+      setDirty(false);
+      toast(t('add.hb.applied'));
+    });
+  const pending = plugins?.some((p) => p.pendingRestart) || dirty;
+
+  return (
+    <>
+      {pending && (
+        <Note icon="rotateCcw" tone="amber">
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            {t('add.hb.pending')}
+            <Button size="sm" variant="amber" icon="rotateCcw" busy={busy === 'restart'} onClick={() => void apply()}>
+              {t('add.hb.apply')}
+            </Button>
+          </span>
+        </Note>
+      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <Panel title={t('add.hb.pluginsTitle')} icon="puzzle">
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) void run('install', async () => {
+              await api.pluginAction('homebridge', 'install', { name: name.trim() });
+              setName('');
+            });
+          }}
+        >
+          <TextField className="min-w-0 flex-1" label={t('add.hb.installLabel')} value={name} onChange={(e) => setName(e.target.value)} placeholder="homebridge-dummy" spellCheck={false} autoCapitalize="off" />
+          <Button type="submit" variant="amber" className="min-h-11" icon="plus" busy={busy === 'install'} disabled={!name.trim()}>
+            {t('add.hb.install')}
+          </Button>
+        </form>
+        {plugins && plugins.length > 0 && (
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {plugins.map((p) => (
+              <li key={p.name} className="flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold">
+                    {p.name} <span className="font-mono text-[11.5px] font-normal text-muted">{p.version ?? ''}</span>
+                  </span>
+                  <span className="block truncate text-[12px] text-muted">{[...p.platforms, ...p.accessories].join(' · ') || ' '}</span>
+                  {p.error && <span className="block text-[12px] text-pretty text-alert">{p.error}</span>}
+                </span>
+                <Badge tone={p.error ? 'alert' : p.loaded ? 'ok' : 'chip'}>{p.error ? t('add.hb.failed') : p.loaded ? t('add.hb.loaded') : t('add.hb.notLoaded')}</Badge>
+                <Button size="sm" variant="ghost" icon="trash" aria-label={t('add.hue.remove')} busy={busy === `rm:${p.name}`} onClick={() => void run(`rm:${p.name}`, () => api.pluginAction('homebridge', 'uninstall', { name: p.name }))} />
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.hb.pluginsFoot')}</p>
+      </Panel>
+      <Panel title={t('add.hb.configTitle')} icon="code">
+        <p className="m-0 text-[13px] leading-relaxed text-pretty text-muted">{t('add.hb.configBody')}</p>
+        <textarea
+          value={config}
+          onChange={(e) => {
+            setConfig(e.target.value);
+            setDirty(true);
+            setConfigError(null);
+          }}
+          rows={12}
+          spellCheck={false}
+          aria-label={t('add.hb.configTitle')}
+          className="w-full resize-y rounded-ctl border border-line bg-surface2 p-3 font-mono text-[12.5px] leading-relaxed text-ink outline-none focus:border-amber-ink"
+        />
+        {configError && <ErrorNote>{configError}</ErrorNote>}
+        <div>
+          <Button
+            icon="check"
+            busy={busy === 'config'}
+            onClick={() => {
+              let parsed: { platforms?: unknown; accessories?: unknown };
+              try {
+                parsed = JSON.parse(config) as typeof parsed;
+              } catch (e) {
+                setConfigError(`JSON: ${(e as Error).message}`);
+                return;
+              }
+              void run('config', async () => {
+                await api.pluginAction('homebridge', 'config', { platforms: parsed.platforms ?? [], accessories: parsed.accessories ?? [] });
+                setDirty(true);
+              });
+            }}
+          >
+            {t('add.hb.saveConfig')}
+          </Button>
+        </div>
+      </Panel>
+      {report && (report.accessories.length > 0 || report.issues.length > 0) && (
+        <Panel title={t('add.hb.accessoriesTitle', { n: report.accessories.length })} icon="list">
+          {report.issues.map((i, n) => (
+            <ErrorNote key={n}>{i.plugin ? `${i.plugin}: ` : ''}{i.message}</ErrorNote>
+          ))}
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            {report.accessories.map((a) => (
+              <li key={a.uuid} className={cx('flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3', a.state === 'unsupported' && 'opacity-70')}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-bold">{a.name}</span>
+                  <span className="block truncate text-[12px] text-muted">{[a.plugin, ...a.mapped.map((m) => m.name ?? m.kind)].join(' · ')}</span>
+                  {a.unsupported.length > 0 && <span className="block truncate text-[12px] text-muted">{t('add.hb.unsupported', { list: a.unsupported.join(', ') })}</span>}
+                </span>
+                <Badge tone={a.state === 'online' ? 'ok' : a.state === 'offline' ? 'alert' : 'chip'}>{t(`add.hb.state.${a.state}` as MessageKey)}</Badge>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+      <Note icon="import">
+        {t('add.hb.importHint')}{' '}
+        <a href="#/migrate" className="font-bold text-ink underline">
+          {t('add.hb.importLink')}
+        </a>
+      </Note>
+    </>
+  );
+}
+
 // ================================================================ MQTT
 
 export function MqttPanel({ method, added, openDevice }: PanelProps<MqttMethod>) {

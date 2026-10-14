@@ -11,7 +11,7 @@ import { useLang, useT, type MessageKey } from '../lib/i18n.ts';
 import { href } from '../lib/router.ts';
 import { useCan } from '../lib/session.ts';
 
-type Source = 'ha' | 'z2m';
+type Source = 'ha' | 'z2m' | 'homebridge';
 
 /** Migration: Home Assistant import (scan → dry-run report → apply → undo) and Zigbee2MQTT takeover. */
 export function MigratePage() {
@@ -52,6 +52,8 @@ export function MigratePage() {
         <HomeAssistantImport onDone={loadHistory} />
       ) : source === 'z2m' ? (
         <Zigbee2MqttTakeover />
+      ) : source === 'homebridge' ? (
+        <HomebridgeImport />
       ) : (
         <SourceChooser onChoose={setSource} />
       )}
@@ -67,7 +69,7 @@ function SourceChooser({ onChoose }: { onChoose: (s: Source) => void }) {
   const sources: { id: Source | null; name: string; icon: IconName; desc: MessageKey; note?: MessageKey }[] = [
     { id: 'ha', name: 'Home Assistant', icon: 'home', desc: 'migrate.ha' },
     { id: 'z2m', name: 'Zigbee2MQTT', icon: 'usb', desc: 'migrate.z2m' },
-    { id: null, name: 'Homebridge', icon: 'share', desc: 'migrate.homebridge', note: 'migrate.homebridgeMeanwhile' },
+    { id: 'homebridge', name: 'Homebridge', icon: 'puzzle', desc: 'migrate.homebridgeNow' },
     { id: null, name: 'zwave-js-ui', icon: 'activity', desc: 'migrate.zwave', note: 'migrate.zwaveMeanwhile' },
   ];
   return (
@@ -585,5 +587,161 @@ function StatusLegend() {
       <Dot tone="ok" />
       {t('migrate.z2m.safe')}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- Homebridge
+
+interface HbPlan {
+  source: string;
+  plugins: { name: string; version?: string; install: boolean; reason?: string }[];
+  platforms: { block: { platform?: string; name?: string }; plugin?: string; note?: string }[];
+  accessories: { block: { accessory?: string; name?: string }; plugin?: string; note?: string }[];
+  cachedAccessories: number;
+  ignored: string[];
+  warnings: string[];
+}
+interface HbResult {
+  installed: string[];
+  failed: { name: string; error: string }[];
+  platforms: number;
+  accessories: number;
+  cachedAccessories: number;
+}
+
+/** Runs Homebridge plugins inside Livynq: plan from ~/.homebridge, install, copy config, restart. */
+function HomebridgeImport() {
+  const t = useT();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [path, setPath] = useState('~/.homebridge');
+  const [plan, setPlan] = useState<HbPlan | null>(null);
+  const [result, setResult] = useState<HbResult | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const check = async () => {
+    try {
+      const o = await api.onboarding();
+      setEnabled(Boolean(o.methods.find((m) => m.id === 'homebridge')?.enabled));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  useEffect(() => {
+    void check();
+  }, []);
+
+  const step = async <T,>(key: string, fn: () => Promise<T>): Promise<T | undefined> => {
+    setBusy(key);
+    setError(null);
+    try {
+      return await fn();
+    } catch (e) {
+      setError(errorMessage(e));
+      return undefined;
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const scan = () => step('scan', async () => setPlan(await api.pluginAction<HbPlan>('homebridge', 'import', { path: path.trim() })));
+  const apply = async () => {
+    if (!plan || !(await confirmDialog({ title: t('migrate.hb.confirm'), body: t('migrate.hb.confirmBody', { n: plan.plugins.filter((p) => p.install).length }), confirmLabel: t('migrate.hb.apply'), icon: 'import' }))) return;
+    await step('apply', async () => {
+      const r = await api.pluginAction<HbResult>('homebridge', 'importApply', { path: path.trim() });
+      await api.restartPlugin('homebridge');
+      setResult(r);
+    });
+  };
+
+  if (enabled === null) return <Card className="grid min-h-40 place-items-center text-muted">{error ? <ErrorNote>{error}</ErrorNote> : <Spinner size={20} />}</Card>;
+  if (!enabled)
+    return (
+      <Panel title={t('migrate.hb.title')} icon="puzzle">
+        <p className="m-0 text-[13.5px] leading-relaxed text-pretty text-muted">{t('add.hb.enableIntro')}</p>
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <div>
+          <Button variant="amber" icon="power" busy={busy === 'enable'} onClick={() => void step('enable', async () => (await api.enablePlugin('@livynq/plugin-homebridge'), await check()))}>
+            {t('migrate.hb.enable')}
+          </Button>
+        </div>
+      </Panel>
+    );
+
+  if (result)
+    return (
+      <Panel title={t('migrate.hb.doneTitle')} icon="circleCheck">
+        <Steps
+          items={[
+            t('migrate.hb.doneInstalled', { n: result.installed.length, list: result.installed.join(', ') || '—' }),
+            t('migrate.hb.doneConfig', { p: result.platforms, a: result.accessories, c: result.cachedAccessories }),
+            t('migrate.hb.doneNext'),
+          ]}
+        />
+        {result.failed.map((f) => (
+          <ErrorNote key={f.name}>
+            {f.name}: {f.error}
+          </ErrorNote>
+        ))}
+        <div className="flex flex-wrap gap-2">
+          <a href={href('devices')}>
+            <Button variant="amber" icon="list">
+              {t('migrate.hb.seeDevices')}
+            </Button>
+          </a>
+          <Button variant="ghost" onClick={() => (setResult(null), setPlan(null))}>
+            {t('migrate.back')}
+          </Button>
+        </div>
+      </Panel>
+    );
+
+  return (
+    <>
+      <Panel title={t('migrate.hb.title')} icon="puzzle">
+        <p className="m-0 text-[13.5px] leading-relaxed text-pretty text-muted">{t('migrate.hb.body')}</p>
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (path.trim()) void scan();
+          }}
+        >
+          <TextField className="min-w-0 flex-1 [&_input]:font-mono" label={t('migrate.hb.path')} value={path} onChange={(e) => setPath(e.target.value)} spellCheck={false} autoCapitalize="off" hint={t('migrate.hb.pathHint')} />
+          <Button type="submit" variant="amber" className="mb-[22px] min-h-11" icon="search" busy={busy === 'scan'}>
+            {t('migrate.hb.scan')}
+          </Button>
+        </form>
+        {error && <ErrorNote>{error}</ErrorNote>}
+      </Panel>
+      {plan && (
+        <Panel title={t('migrate.hb.planTitle')} icon="list">
+          <div className="flex flex-col gap-1">
+            <SectionLabel>{t('migrate.hb.plugins')}</SectionLabel>
+            {plan.plugins.map((p) => (
+              <div key={p.name} className="flex items-center justify-between gap-3 border-t border-line py-2 text-[13.5px] first:border-t-0">
+                <span className="min-w-0">
+                  <span className="font-bold">{p.name}</span> <span className="font-mono text-[11.5px] text-muted">{p.version ?? ''}</span>
+                  {p.reason && <span className="block text-[12px] text-muted">{p.reason}</span>}
+                </span>
+                <Badge tone={p.install ? 'ok' : 'chip'}>{p.install ? t('migrate.hb.willInstall') : t('migrate.hb.skip')}</Badge>
+              </div>
+            ))}
+          </div>
+          <p className="m-0 text-[13px] text-muted">{t('migrate.hb.blocks', { p: plan.platforms.length, a: plan.accessories.length, c: plan.cachedAccessories })}</p>
+          {plan.ignored.length > 0 && <p className="m-0 text-xs text-muted">{t('migrate.hb.ignored', { list: plan.ignored.join(', ') })}</p>}
+          {plan.warnings.map((w) => (
+            <Note key={w} icon="info">
+              {w}
+            </Note>
+          ))}
+          <div>
+            <Button variant="amber" icon="import" busy={busy === 'apply'} onClick={() => void apply()}>
+              {t('migrate.hb.apply')}
+            </Button>
+          </div>
+        </Panel>
+      )}
+    </>
   );
 }

@@ -16,6 +16,7 @@ interface NavItem {
 
 export const navItems: NavItem[] = [
   { route: 'home', icon: 'home', label: 'nav.home' },
+  { route: 'assistant', icon: 'sparkles', label: 'nav.assistant' },
   { route: 'devices', icon: 'list', label: 'nav.devices' },
   { route: 'rooms', icon: 'layers', label: 'nav.rooms' },
   { route: 'automations', icon: 'workflow', label: 'nav.automations' },
@@ -27,12 +28,12 @@ export const navItems: NavItem[] = [
 const tabItems: NavItem[] = [
   { route: 'home', icon: 'home', label: 'nav.home' },
   { route: 'devices', icon: 'list', label: 'nav.devices' },
-  { route: 'agents', icon: 'bot', label: 'nav.agents' },
+  { route: 'assistant', icon: 'sparkles', label: 'nav.assistant' },
   { route: 'ecosystems', icon: 'network', label: 'nav.ecosystems' },
   { route: 'more', icon: 'more', label: 'nav.more' },
 ];
 
-const moreRoutes: Route[] = ['more', 'rooms', 'automations', 'migrate', 'plugins', 'settings'];
+const moreRoutes: Route[] = ['more', 'rooms', 'automations', 'agents', 'migrate', 'plugins', 'settings'];
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   return (

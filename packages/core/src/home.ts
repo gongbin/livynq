@@ -21,6 +21,7 @@ import { TokenStore } from './tokens.ts';
 import { Confirmations } from './confirmations.ts';
 import { Settings } from './settings.ts';
 import { Spaces } from './spaces.ts';
+import { MediaRegistry } from './media.ts';
 
 export interface HomeOptions {
   /** Data directory; `:memory:` keeps everything in memory (tests). */
@@ -61,6 +62,8 @@ export class Home {
   readonly confirmations: Confirmations;
   readonly settings: Settings;
   readonly spaces: Spaces;
+  /** Camera stream sources (memory only). */
+  readonly media = new MediaRegistry();
   readonly startedAt = Date.now();
 
   readonly #adapters = new Map<string, Adapter>();
@@ -84,6 +87,7 @@ export class Home {
     this.confirmations = new Confirmations(this);
     this.settings = new Settings(this.storage, this.bus);
     this.spaces = new Spaces(this.storage, this.bus, this.registry);
+    this.bus.on('device.removed', ({ id }) => this.media.delete(id));
   }
 
   get running(): boolean {
@@ -103,6 +107,7 @@ export class Home {
     await this.#guard(`stop adapter ${id}`, () => adapter.stop());
     this.#adapters.delete(id);
     this.#actions.delete(id);
+    this.media.deleteAdapter(id);
     for (const key of [...this.#handlers.keys()]) if (this.#handlers.get(key)?.adapter === id) this.#handlers.delete(key);
     for (const device of this.registry.listDevices()) if (device.adapter === id) this.registry.setAvailability(device.id, 'offline');
   }
@@ -168,6 +173,7 @@ export class Home {
     clearInterval(this.#confirmationTimer);
     for (const extension of this.#extensions.values()) await this.#guard(`stop extension ${extension.id}`, () => extension.stop());
     for (const adapter of this.#adapters.values()) await this.#guard(`stop adapter ${adapter.id}`, () => adapter.stop());
+    for (const adapter of this.#adapters.keys()) this.media.deleteAdapter(adapter);
     for (const exporter of this.#exporters.values()) await this.#guard(`stop exporter ${exporter.id}`, () => exporter.stop());
     this.storage.close();
   }
@@ -204,6 +210,13 @@ export class Home {
       },
       deviceState: (id) => (this.registry.getDevice(id)?.adapter === adapterId ? this.registry.getState(id) : {}),
       endpointId: (deviceId, key) => this.registry.endpointId(deviceId, key),
+      registerMedia: (deviceId, endpointId, source) => {
+        if (this.registry.getDevice(deviceId)?.adapter !== adapterId) throw new LivynqError('INVALID_PARAMS', `Device ${deviceId} does not belong to ${adapterId}`);
+        this.media.set(adapterId, deviceId, endpointId, source);
+      },
+      unregisterMedia: (deviceId, endpointId) => {
+        if (this.media.get(deviceId, endpointId)?.adapter === adapterId) this.media.delete(deviceId, endpointId);
+      },
     };
   }
 
