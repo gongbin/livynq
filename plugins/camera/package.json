@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-camera",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "IP cameras for Livynq: ONVIF discovery, streams, snapshots, motion and person events, or plain RTSP",
   "license": "Apache-2.0",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-homeassistant",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Live bridge to a running Home Assistant (WebSocket API) for Livynq",
   "license": "Apache-2.0",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-xiaomi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Xiaomi / Mijia devices: Mi Home account sign-in, local miIO / MIoT control",
   "license": "Apache-2.0",
   "repository": {

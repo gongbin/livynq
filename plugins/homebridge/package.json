@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-homebridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Homebridge compatibility for Livynq: run Homebridge plugins and use their accessories as Livynq devices",
   "license": "Apache-2.0",
   "repository": {

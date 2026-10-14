@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-shelly",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shelly Gen2+ devices (Plus, Pro, Gen3, Gen4) over the local RPC API",
   "license": "Apache-2.0",
   "repository": {

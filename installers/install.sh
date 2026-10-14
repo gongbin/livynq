@@ -1,7 +1,7 @@
 #!/bin/sh
 # Livynq installer: downloads the single-file binary and runs it as a service.
 #   curl -fsSL https://raw.githubusercontent.com/gongbin/livynq/main/installers/install.sh | sh
-# Options (env): LIVYNQ_VERSION=v0.2.0  LIVYNQ_PREFIX=/opt/livynq  LIVYNQ_DATA=/var/lib/livynq  LIVYNQ_NO_SERVICE=1
+# Options (env): LIVYNQ_VERSION=v0.3.0  LIVYNQ_PREFIX=/opt/livynq  LIVYNQ_DATA=/var/lib/livynq  LIVYNQ_NO_SERVICE=1
 set -eu
 
 REPO="gongbin/livynq"

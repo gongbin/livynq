@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-matter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Matter controller for Livynq: commission and control Matter devices (matter.js)",
   "license": "Apache-2.0",
   "repository": {

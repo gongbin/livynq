@@ -1,6 +1,6 @@
 {
   "name": "@livynq/installer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "npm-free package installer used by Livynq for its plugins and Homebridge plugins: semver resolution, integrity checks, no install scripts",
   "license": "Apache-2.0",
   "repository": {

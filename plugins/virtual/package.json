@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-virtual",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Virtual switches and momentary buttons (e.g. Siri-triggerable scenes) for Livynq",
   "license": "Apache-2.0",
   "repository": {

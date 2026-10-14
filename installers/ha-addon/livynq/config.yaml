@@ -1,5 +1,5 @@
 name: Livynq
-version: "0.2.0"
+version: "0.3.0"
 slug: livynq
 description: Lightweight hub that bridges your Home Assistant entities to Apple Home, Matter and AI agents (MCP)
 url: https://github.com/gongbin/livynq

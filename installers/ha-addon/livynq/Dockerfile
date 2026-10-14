@@ -2,7 +2,7 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 ARG BUILD_ARCH
-ARG LIVYNQ_VERSION=v0.2.0
+ARG LIVYNQ_VERSION=v0.3.0
 
 # The single-file Livynq binary (Node runtime + hub + web UI) from GitHub Releases.
 RUN set -eux; \

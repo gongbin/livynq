@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-zwave",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Z-Wave for Livynq (zwave-js): S2, SmartStart, Long Range",
   "license": "Apache-2.0",
   "repository": {

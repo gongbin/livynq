@@ -1,6 +1,6 @@
 {
   "name": "@livynq/plugin-hue",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Philips Hue bridges over the local CLIP v2 API",
   "license": "Apache-2.0",
   "repository": {
