@@ -18,6 +18,7 @@ import { silentLogger, type Logger } from './logger.ts';
 import { Registry } from './registry.ts';
 import { Storage } from './storage.ts';
 import { TokenStore } from './tokens.ts';
+import { UserStore } from './users.ts';
 import { Confirmations } from './confirmations.ts';
 import { Settings } from './settings.ts';
 import { Spaces } from './spaces.ts';
@@ -59,6 +60,7 @@ export class Home {
   readonly bus: EventBus;
   readonly registry: Registry;
   readonly tokens: TokenStore;
+  readonly users: UserStore;
   readonly confirmations: Confirmations;
   readonly settings: Settings;
   readonly spaces: Spaces;
@@ -84,6 +86,7 @@ export class Home {
     this.bus = new EventBus((err, event) => this.log.error({ err, event }, 'event listener failed'));
     this.registry = new Registry(this.storage, this.bus);
     this.tokens = new TokenStore(this.storage);
+    this.users = new UserStore(this.storage);
     this.confirmations = new Confirmations(this);
     this.settings = new Settings(this.storage, this.bus);
     this.spaces = new Spaces(this.storage, this.bus, this.registry);

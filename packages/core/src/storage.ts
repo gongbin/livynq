@@ -152,6 +152,25 @@ const migrations: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  `
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    allowed_rooms TEXT,
+    risk_limit TEXT,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_login_at INTEGER
+  );
+  CREATE UNIQUE INDEX users_username ON users (username COLLATE NOCASE);
+  ALTER TABLE tokens ADD COLUMN user_id TEXT;
+  ALTER TABLE tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api';
+  ALTER TABLE tokens ADD COLUMN expires_at INTEGER;
+  CREATE INDEX tokens_user ON tokens (user_id);
+  `,
 ];
 
 export class Storage {

@@ -27,6 +27,33 @@ export interface TokenInfo {
   riskLimit?: Risk;
   createdAt: number;
   lastUsedAt: number | null;
+  kind?: 'api' | 'session';
+  userId?: string | null;
+  /** Who created the token (API tokens) */
+  owner?: { id: string; username: string; displayName: string } | null;
+}
+
+export type Role = 'owner' | 'admin' | 'member' | 'guest';
+
+/** Mirrors `User` in packages/core/src/users.ts */
+export interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  role: Role;
+  allowedRooms: string[] | null;
+  riskLimit: Risk | null;
+  disabled: boolean;
+  createdAt: number;
+  lastLoginAt: number | null;
+  sessions?: number;
+}
+
+export interface Me {
+  token: TokenInfo;
+  /** null for access tokens from before accounts (e.g. the CLI link) */
+  user: User | null;
+  access: { rooms: string[] | null; automations: boolean; canRequestApproval: boolean };
 }
 
 export interface AuditRow {
@@ -284,6 +311,13 @@ export function signOut(): void {
   auth.set(null);
 }
 
+/** Ends this session on the server too (a no-op for access tokens), then signs out here. */
+export async function logout(): Promise<void> {
+  const token = auth.get();
+  if (token) await fetch('/api/v1/auth/logout', { method: 'POST', headers: { authorization: `Bearer ${token}` } }).catch(() => undefined);
+  signOut();
+}
+
 async function request<T>(method: string, path: string, body?: unknown, token = auth.get()): Promise<T> {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -304,7 +338,18 @@ const enc = encodeURIComponent;
 
 export const api = {
   /** Validates a token without touching the stored session. */
-  me: (token?: string) => request<{ token: TokenInfo }>('GET', '/auth/me', undefined, token ?? auth.get()),
+  me: (token?: string) => request<Me>('GET', '/auth/me', undefined, token ?? auth.get()),
+  authStatus: () => request<{ users: boolean; setupHere: boolean }>('GET', '/auth/status', undefined, null),
+  login: (username: string, password: string) => request<{ token: string; user: User }>('POST', '/auth/login', { username, password }, null),
+  setupOwner: (body: { username: string; displayName?: string; password: string }) => request<{ token: string; user: User }>('POST', '/auth/setup', body),
+  logoutAll: () => request<{ signedOut: number }>('POST', '/auth/logout-all'),
+  changePassword: (current: string, password: string) => request<{ ok: true }>('POST', '/auth/password', { current, password }),
+  users: () => request<User[]>('GET', '/users'),
+  createUser: (body: { username: string; displayName?: string; password: string; role: Role; allowedRooms?: string[] | null }) => request<User>('POST', '/users', body),
+  updateUser: (id: string, patch: Partial<Pick<User, 'displayName' | 'role' | 'allowedRooms' | 'disabled' | 'riskLimit'>>) => request<User>('PATCH', `/users/${enc(id)}`, patch),
+  resetPassword: (id: string, password: string) => request<{ ok: true }>('POST', `/users/${enc(id)}/password`, { password }),
+  deleteUser: (id: string) => request<void>('DELETE', `/users/${enc(id)}`),
+  transferOwnership: (id: string) => request<User>('POST', `/users/${enc(id)}/transfer-ownership`),
   systemInfo: () => request<SystemInfo>('GET', '/system/info'),
   pushInfo: () => request<PushInfo>('GET', '/push'),
   pushSubscribe: (subscription: unknown, name: string) => request<{ endpoint: string }>('POST', '/push/subscriptions', { subscription, name }),

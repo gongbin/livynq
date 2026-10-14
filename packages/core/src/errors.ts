@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'CONFLICT'
+  | 'RATE_LIMITED'
   | 'ACTION_FAILED'
   | 'INTERNAL';
 
@@ -19,6 +20,7 @@ const httpStatus: Record<ErrorCode, number> = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   CONFLICT: 409,
+  RATE_LIMITED: 429,
   ACTION_FAILED: 422,
   INTERNAL: 500,
 };

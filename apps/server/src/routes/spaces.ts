@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
-import { LivynqError, type Home } from '@livynq/core';
+import { LivynqError, canSeeDevice, type Home } from '@livynq/core';
 import type { Placement } from '@livynq/model';
 
 const IMAGE_TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
@@ -15,7 +15,21 @@ export function registerSpaceRoutes(app: FastifyInstance, home: Home, guards: { 
   // JPEG/PNG/WebP parsers are registered by the UI routes; floor plans may also be SVG.
   app.addContentTypeParser('image/svg+xml', { parseAs: 'buffer', bodyLimit: 10 * 1024 * 1024 }, (_req, body, done) => done(null, body));
 
-  app.get('/api/v1/floorplan', read, async () => ({ ...home.spaces.floorPlan(), adjacency: home.spaces.adjacency() }));
+  app.get('/api/v1/floorplan', read, async (req) => {
+    const plan = { ...home.spaces.floorPlan(), adjacency: home.spaces.adjacency() };
+    const rooms = req.access?.rooms ?? null;
+    if (rooms === null) return plan;
+    // Room-restricted accounts see their rooms and the devices in them only.
+    const kept = plan.rooms.filter((r) => rooms.has(r.id));
+    const levels = new Set(kept.map((r) => r.levelId));
+    const shown = new Set(home.registry.listDevices().filter((d) => canSeeDevice(req.access!, d)).map((d) => d.id));
+    return {
+      levels: plan.levels.filter((l) => levels.has(l.id)),
+      rooms: kept,
+      placements: plan.placements.filter((p) => shown.has(p.deviceId)),
+      adjacency: Object.fromEntries(Object.entries(plan.adjacency).filter(([id]) => rooms.has(id)).map(([id, adj]) => [id, adj.filter((a) => rooms.has(a))])),
+    };
+  });
 
   app.post('/api/v1/levels', admin, async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; elevation?: number };

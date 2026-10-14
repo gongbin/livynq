@@ -1,4 +1,4 @@
-import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
+import type { FastifyInstance, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
 import { LivynqError, type Home } from '@livynq/core';
 import type { PushInfo } from '@livynq/model';
 import type { PushService } from '../push.ts';
@@ -16,11 +16,19 @@ export function registerPushRoutes(
   const stop = push.start();
   app.addHook('onClose', async () => stop());
 
-  const mine = (tokenId: string) => push.list().filter((s) => s.tokenId === tokenId);
+  /** The caller's devices: subscriptions of any of their sessions / tokens (or of this token). */
+  const tokensOf = (req: FastifyRequest): Set<string> => {
+    const u = req.access?.user;
+    return new Set(u ? home.tokens.list({ userId: u.id }).map((t) => t.id) : [req.auth!.id]);
+  };
+  const mine = (req: FastifyRequest) => {
+    const ids = tokensOf(req);
+    return push.list().filter((s) => ids.has(s.tokenId));
+  };
 
   app.get('/api/v1/push', guards.read, async (req): Promise<PushInfo> => ({
     publicKey: push.vapid.publicKey,
-    subscriptions: mine(req.auth!.id).map((s) => ({ endpoint: s.endpoint, name: s.name, createdAt: s.createdAt, ...(s.lastError ? { lastError: s.lastError } : {}) })),
+    subscriptions: mine(req).map((s) => ({ endpoint: s.endpoint, name: s.name, createdAt: s.createdAt, ...(s.lastError ? { lastError: s.lastError } : {}) })),
   }));
 
   app.post('/api/v1/push/subscriptions', guards.read, async (req, reply) => {
@@ -41,7 +49,7 @@ export function registerPushRoutes(
     const endpoint = String(((req.body ?? {}) as { endpoint?: unknown }).endpoint ?? '');
     const sub = push.list().find((s) => s.endpoint === endpoint);
     if (!sub) throw new LivynqError('NOT_FOUND', 'Not subscribed');
-    if (sub.tokenId !== req.auth!.id && req.auth!.scope !== 'admin') throw new LivynqError('FORBIDDEN', 'This subscription belongs to another token');
+    if (!tokensOf(req).has(sub.tokenId) && req.auth!.scope !== 'admin') throw new LivynqError('FORBIDDEN', 'This subscription belongs to another token');
     push.unsubscribe(endpoint);
     return { ok: true };
   });
@@ -49,10 +57,10 @@ export function registerPushRoutes(
   // Test message to the caller's own devices.
   app.post('/api/v1/push/test', guards.read, async (req) => {
     const endpoint = ((req.body ?? {}) as { endpoint?: string }).endpoint;
-    const id = req.auth!.id;
+    const ids = tokensOf(req);
     const result = await push.send(
       { id: `test-${Date.now()}`, title: 'Livynq', message: 'Notifications are working.', kind: 'message', source: `api:${req.auth!.name}`, ts: Date.now(), tag: 'livynq-test' },
-      (s) => s.tokenId === id && (!endpoint || s.endpoint === endpoint),
+      (s) => ids.has(s.tokenId) && (!endpoint || s.endpoint === endpoint),
     );
     if (!result.sent && !result.failed) throw new LivynqError('NOT_FOUND', 'No push subscription for this token');
     return result;

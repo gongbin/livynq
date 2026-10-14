@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { LivynqError, type Home } from '@livynq/core';
 import type { AutomationEngine } from '@livynq/automation';
-import { LLM_PRESETS, createProvider, createToolbox, generateAutomation, homeContext, runAssistant, type ChatMessage, type HomeApi, type LlmSettings } from '@livynq/agent';
+import { LLM_PRESETS, createProvider, createToolbox, generateAutomation, homeContext, restrictHomeApi, runAssistant, type ChatMessage, type HomeApi, type LlmSettings } from '@livynq/agent';
 
 /**
  * Built-in assistant: model settings (admin; the API key stays in secrets/assistant.json and is
@@ -121,7 +121,7 @@ export function registerAssistantRoutes(
     const history = Array.isArray(b.history) ? (b.history as ChatMessage[]).slice(-40) : [];
     const p = provider();
     const auth = req.auth!;
-    const toolbox = createToolbox({ api, scope: auth.scope, riskLimit: auth.riskLimit, clientName: `assistant/${auth.name}`, version });
+    const toolbox = createToolbox({ api: restrictHomeApi(api, req.access!), scope: auth.scope, riskLimit: auth.riskLimit, clientName: `assistant/${auth.name}`, version });
     const abort = new AbortController();
     reply.hijack();
     const res = reply.raw;
@@ -142,7 +142,9 @@ export function registerAssistantRoutes(
     const b = (req.body ?? {}) as { description?: unknown; current?: unknown; lang?: unknown };
     const description = typeof b.description === 'string' ? b.description.trim() : '';
     if (!description) throw new LivynqError('INVALID_PARAMS', 'description is required');
-    const [rooms, devices] = await Promise.all([api.rooms(), api.devices()]);
+    if (!req.access!.automations) throw new LivynqError('FORBIDDEN', 'This account cannot use automations');
+    const mine = restrictHomeApi(api, req.access!);
+    const [rooms, devices] = await Promise.all([mine.rooms(), mine.devices()]);
     const current = b.current && typeof b.current === 'object' && !Array.isArray(b.current) ? (b.current as Record<string, unknown>) : undefined;
     return generateAutomation({ provider: provider(), description, context: homeContext(rooms, devices), validate: (c) => engine().validate(c), ...(current ? { current } : {}), lang: lang(b.lang), signal: AbortSignal.timeout(120_000) });
   });

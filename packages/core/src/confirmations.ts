@@ -24,6 +24,8 @@ export interface Caller {
   /** Audit source, e.g. "agent:claude" or "api:script". */
   source: string;
   riskLimit: Risk;
+  /** false: commands above the limit are refused instead of waiting for approval (guests). */
+  canRequestApproval?: boolean;
 }
 
 export type GuardedResult = { status: 'executed'; risk: Risk } | { status: 'pending'; confirmation: Confirmation };
@@ -70,6 +72,7 @@ export class Confirmations {
       await this.#home.command(request, caller.source);
       return { status: 'executed', risk };
     }
+    if (caller.canRequestApproval === false) throw new LivynqError('FORBIDDEN', `This account cannot do ${risk}-risk actions`, 'Ask a member of the household');
     return { status: 'pending', confirmation: this.#create(request, caller.source, risk) };
   }
 

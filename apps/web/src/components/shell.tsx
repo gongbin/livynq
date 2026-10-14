@@ -35,6 +35,20 @@ const tabItems: NavItem[] = [
 
 const moreRoutes: Route[] = ['more', 'rooms', 'automations', 'agents', 'migrate', 'plugins', 'settings'];
 
+/** Pages an account can't use are not shown: guests have no automations or tokens; room-limited accounts see no pairing codes. */
+export function useHiddenRoutes(): Set<Route> {
+  const { access, me } = useSession();
+  const hidden = new Set<Route>();
+  if (access?.rooms) hidden.add('ecosystems');
+  if (access?.automations === false) hidden.add('automations');
+  if (access?.canRequestApproval === false) hidden.add('agents');
+  if (me && me.scope !== 'admin') {
+    hidden.add('migrate');
+    hidden.add('plugins');
+  }
+  return hidden;
+}
+
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh bg-bg text-ink">
@@ -70,6 +84,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 
 function Sidebar({ route }: { route: Route }) {
   const t = useT();
+  const hidden = useHiddenRoutes();
   return (
     <aside className="sticky top-0 hidden h-dvh w-[236px] shrink-0 flex-col gap-6 overflow-y-auto border-r border-line bg-surface2 px-3.5 pt-[22px] pb-[18px] md:flex">
       <a href={href('home')} className="flex items-center gap-2.5 px-2 text-ink! no-underline">
@@ -77,14 +92,14 @@ function Sidebar({ route }: { route: Route }) {
         <span className="text-[19px] font-extrabold tracking-[-0.02em]">Livynq</span>
       </a>
       <nav aria-label={t('nav.main')} className="flex flex-col gap-0.5">
-        {navItems.map((item) => (
+        {navItems.filter((item) => !hidden.has(item.route)).map((item) => (
           <NavLink key={item.route} item={item} active={route === item.route} />
         ))}
         <a href={href('wall')} className="flex items-center gap-3 rounded-ctl px-3 py-2.5 text-sm font-semibold text-muted! no-underline transition-colors duration-base hover:bg-chip hover:text-ink!">
           <Icon name="tablet" size={18} />
           {t('nav.wall')}
         </a>
-        <NavLink item={{ route: 'plugins', icon: 'puzzle', label: 'nav.plugins' }} active={route === 'plugins'} />
+        {!hidden.has('plugins') && <NavLink item={{ route: 'plugins', icon: 'puzzle', label: 'nav.plugins' }} active={route === 'plugins'} />}
         <NavLink item={{ route: 'settings', icon: 'settings', label: 'nav.settings' }} active={route === 'settings'} />
       </nav>
       <div className="mt-auto flex flex-col gap-2.5">
@@ -136,7 +151,7 @@ export function LangSwitch({ className }: { className?: string }) {
 function StatusCard() {
   const t = useT();
   const { status, devices } = useLive();
-  const { info } = useSession();
+  const { info, user, me } = useSession();
   const tone = status === 'open' ? 'ok' : status === 'connecting' ? 'amber' : 'alert';
   const n = Object.keys(devices).length;
   return (
@@ -150,6 +165,13 @@ function StatusCard() {
         {t('status.offlineReady')}
         {info ? ` · v${info.version}` : ''}
       </div>
+      {(user || me) && (
+        <a href={href('settings')} className="mt-2 flex items-center gap-2 border-t border-line pt-2 text-ink! no-underline">
+          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-amber-soft text-[11px] font-extrabold text-amber-ink">{(user?.displayName ?? me?.name ?? '?').slice(0, 1).toUpperCase()}</span>
+          <span className="min-w-0 flex-1 truncate font-bold">{user?.displayName ?? me?.name}</span>
+          {user && <span className="shrink-0 text-[11px]">{t(`users.role.${user.role}`)}</span>}
+        </a>
+      )}
     </div>
   );
 }
@@ -189,10 +211,11 @@ function MobileHeader() {
 }
 
 function TabBar({ route }: { route: Route }) {
+  const hidden = useHiddenRoutes();
   const t = useT();
   return (
-    <nav aria-label={t('nav.main')} className="pb-safe sticky bottom-0 z-20 grid grid-cols-5 border-t border-line bg-surface/95 px-1 pt-1.5 backdrop-blur-md md:hidden">
-      {tabItems.map((item) => {
+    <nav aria-label={t('nav.main')} className="pb-safe sticky bottom-0 z-20 grid auto-cols-fr grid-flow-col border-t border-line bg-surface/95 px-1 pt-1.5 backdrop-blur-md md:hidden">
+      {tabItems.filter((item) => !hidden.has(item.route)).map((item) => {
         const active = item.route === 'more' ? moreRoutes.includes(route) : route === item.route;
         return (
           <a

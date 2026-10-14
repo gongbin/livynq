@@ -51,6 +51,9 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
   automations list | get <id> | traces <id> | trigger <id> | enable <id> | disable <id> | delete <id>
   automations apply <file.yaml> [--dry-run] [--disabled]
                                 Create or update from Home Assistant style YAML
+  user list | user add <name> [--role owner|admin|member|guest] [--rooms id,id] [--name N] [--password P]
+  user passwd <name> [--password P] | user remove <name>
+                                Accounts for the web UI (the first one is the owner)
   tokens list | tokens create <name> [--scope read|control|admin] [--risk-limit low|medium|high] | tokens revoke <id>
                                 Actions above a token's risk limit wait for approval in the app
   confirmations list | confirmations approve <id> | confirmations deny <id>
@@ -434,6 +437,42 @@ async function run(): Promise<void> {
         tokens,
       );
     }
+    case 'user':
+    case 'users': {
+      const c = client();
+      type U = { id: string; username: string; displayName: string; role: string; allowedRooms: string[] | null; disabled: boolean; lastLoginAt: number | null; sessions?: number };
+      const find = async (name: string) => {
+        const u = (await c.request<U[]>('GET', '/api/v1/users')).find((x) => x.username.toLowerCase() === name.toLowerCase());
+        if (!u) throw new ApiError(404, 'NOT_FOUND', `No user ${name}`);
+        return u;
+      };
+      const password = async () => str('password') ?? process.env.LIVYNQ_PASSWORD ?? (await promptHidden('Password: '));
+      if (sub === 'add' && rest[0]) {
+        const role = str('role') ?? 'member';
+        const rooms = str('rooms') ? str('rooms')!.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+        const body = { username: rest[0], displayName: str('name'), password: await password(), role, ...(rooms ? { allowedRooms: rooms } : {}) };
+        const status = await c.request<{ users: boolean }>('GET', '/api/v1/auth/status');
+        // The first account is the owner (allowed with the local CLI token).
+        const created = !status.users ? (await c.request<{ user: U }>('POST', '/api/v1/auth/setup', body)).user : await c.request<U>('POST', '/api/v1/users', body);
+        return print(`added ${created.username} (${created.role})`, created);
+      }
+      if (sub === 'passwd' && rest[0]) {
+        const u = await find(rest[0]);
+        await c.request('POST', `/api/v1/users/${encodeURIComponent(u.id)}/password`, { password: await password() });
+        return print(`password changed for ${u.username}; their sessions were signed out`, { ok: true });
+      }
+      if ((sub === 'remove' || sub === 'rm') && rest[0]) {
+        const u = await find(rest[0]);
+        await c.request('DELETE', `/api/v1/users/${encodeURIComponent(u.id)}`);
+        return print(`removed ${u.username}`, { ok: true });
+      }
+      if (sub && sub !== 'list') throw new ApiError(400, 'INVALID_PARAMS', 'Usage: livynq user list | add <name> [--role owner|admin|member|guest] [--rooms id,id] [--name "Display"] [--password P] | passwd <name> | remove <name>');
+      const users = await c.request<U[]>('GET', '/api/v1/users');
+      return print(
+        table(users.map((u) => ({ user: u.username, name: u.displayName, role: u.role, rooms: u.allowedRooms ? u.allowedRooms.join(', ') || '(none)' : 'all', disabled: u.disabled ? 'yes' : '', lastLogin: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '' }))),
+        users,
+      );
+    }
     case 'mcp': {
       const c = client();
       const me = await c.request<{ token: { name: string; scope: TokenScope; riskLimit: Risk } }>('GET', '/api/v1/auth/me');
@@ -451,3 +490,36 @@ run().catch((err: unknown) => {
   else process.stderr.write(`error: ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ''}\n`);
   process.exit(e.code === 'UNREACHABLE' ? 3 : e.code === 'UNAUTHORIZED' || e.code === 'FORBIDDEN' ? 4 : e.code === 'NOT_FOUND' ? 5 : 1);
 });
+
+/** Reads a password from the terminal without echoing it (or one line from a pipe). */
+function promptHidden(question: string): Promise<string> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return new Promise((resolve) => {
+      let data = '';
+      stdin.setEncoding('utf8');
+      stdin.on('data', (c) => (data += c));
+      stdin.on('end', () => resolve(data.split(/\r?\n/)[0] ?? ''));
+    });
+  }
+  process.stderr.write(question);
+  return new Promise((resolve) => {
+    let value = '';
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    const onData = (ch: string) => {
+      if (ch === '\r' || ch === '\n' || ch === '\u0004') {
+        stdin.setRawMode(false);
+        stdin.pause();
+        stdin.off('data', onData);
+        process.stderr.write('\n');
+        resolve(value);
+      } else if (ch === '\u0003') {
+        process.exit(130);
+      } else if (ch === '\u007f') value = value.slice(0, -1);
+      else value += ch;
+    };
+    stdin.on('data', onData);
+  });
+}

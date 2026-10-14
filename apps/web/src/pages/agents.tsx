@@ -150,8 +150,10 @@ function AuditCard() {
 function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
   const t = useT();
   const lang = useLang();
-  const { me } = useSession();
-  const canAdmin = useCan('admin');
+  const { me, access } = useSession();
+  // Members manage their own tokens; admins see everyone's. Guests have none.
+  const canAdmin = useCan('control') && access?.canRequestApproval !== false;
+  const isAdmin = useCan('admin');
   const [tokens, setTokens] = useState<TokenInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -250,7 +252,7 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
                 // Same defaults as the server: admin may do anything, control stops at medium risk.
                 setRiskLimit(s === 'admin' ? 'high' : 'medium');
               }}
-              options={(['read', 'control', 'admin'] as const).map((s) => ({ value: s, label: scopeLabel(s) }))}
+              options={(isAdmin ? (['read', 'control', 'admin'] as const) : (['read', 'control'] as const)).map((s) => ({ value: s, label: scopeLabel(s) }))}
             />
           </div>
           {scope !== 'read' && (
@@ -295,6 +297,7 @@ function TokensCard({ onCreated }: { onCreated: (token: string) => void }) {
                 {current && <Badge tone="amber">{t('agents.current')}</Badge>}
               </div>
               <div className="mt-0.5 text-[12.5px] text-muted">
+                {isAdmin && tk.owner ? `${tk.owner.displayName} · ` : ''}
                 {scopeLabel(tk.scope)}
                 {tk.riskLimit && tk.scope !== 'read' ? ` · ${t('agents.riskUpTo', { r: t(`risk.${tk.riskLimit}`) })}` : ''} · {tk.lastUsedAt ? t('agents.lastUsed', { t: formatRelative(tk.lastUsedAt, lang) }) : t('agents.neverUsed')}
               </div>

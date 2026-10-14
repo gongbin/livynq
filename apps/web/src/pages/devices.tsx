@@ -4,12 +4,14 @@ import { toneStyle } from '../components/device-card.tsx';
 import { Icon } from '../components/icons.tsx';
 import { Button, Card, Dot, EmptyState, PageHeader, Spinner } from '../components/ui.tsx';
 import { openAddDevice } from '../lib/add-device.ts';
+import { useCan } from '../lib/session.ts';
 import { describe, primaryEntity, roomName, sortDevices } from '../lib/devices.ts';
 import { useT } from '../lib/i18n.ts';
 import { useLive } from '../lib/live.ts';
 
 export function DevicesPage() {
   const t = useT();
+  const canAddDevices = useCan('admin');
   const { devices: byId, rooms, ready } = useLive();
   const [query, setQuery] = useState('');
   const q = useDeferredValue(query.trim().toLowerCase());
@@ -29,9 +31,11 @@ export function DevicesPage() {
         title={t('devices.title')}
         subtitle={t('devices.subtitle')}
         actions={
-          <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
-            {t('add.cta')}
-          </Button>
+          canAddDevices && (
+            <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+              {t('add.cta')}
+            </Button>
+          )
         }
       />
       <div className="relative">
@@ -55,9 +59,11 @@ export function DevicesPage() {
             <EmptyState icon="search" title={t('devices.noMatch')} />
           ) : (
             <EmptyState icon="home" title={t('home.empty.title')} body={t('add.emptyBody')}>
-              <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
-                {t('add.cta')}
-              </Button>
+              {canAddDevices && (
+                <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+                  {t('add.cta')}
+                </Button>
+              )}
             </EmptyState>
           )
         ) : (

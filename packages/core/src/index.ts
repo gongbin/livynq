@@ -4,6 +4,7 @@ export * from './event-bus.ts';
 export * from './storage.ts';
 export * from './registry.ts';
 export * from './tokens.ts';
+export * from './users.ts';
 export * from './adapter.ts';
 export * from './home.ts';
 export * from './demo-adapter.ts';

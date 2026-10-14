@@ -39,7 +39,13 @@ export function registerAutomationRoutes(app: FastifyInstance, home: Home, guard
     if (!e) throw new LivynqError('NOT_SUPPORTED', 'Automations are disabled');
     return e;
   };
-  const { read, control, admin, source } = guards;
+  // Guests don't see or run automations (they reveal the whole home).
+  const noGuests: preHandlerAsyncHookHandler = async (req) => {
+    if (req.access && !req.access.automations) throw new LivynqError('FORBIDDEN', 'This account cannot use automations');
+  };
+  const read = { preHandler: [guards.read.preHandler, noGuests] };
+  const control = { preHandler: [guards.control.preHandler, noGuests] };
+  const { admin, source } = guards;
   const id = (req: FastifyRequest) => (req.params as { id: string }).id;
 
   app.get('/api/v1/automations', read, async () => engine().list());

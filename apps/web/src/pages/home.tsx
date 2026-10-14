@@ -68,6 +68,7 @@ export function useNow(intervalMs = 10_000): Date {
 
 export function HomePage() {
   const t = useT();
+  const canAddDevices = useCan('admin');
   const lang = useLang();
   const { devices: byId, rooms, ready } = useLive();
   const devices = useMemo(() => Object.values(byId), [byId]);
@@ -110,9 +111,11 @@ export function HomePage() {
           <a href={href('wall')} aria-label={t('nav.wall')} title={t('nav.wall')} className="grid size-11 place-items-center rounded-[13px] bg-chip text-ink! md:hidden">
             <Icon name="tablet" size={17} />
           </a>
-          <Button variant="amber" icon="plus" onClick={() => openAddDevice()} className="min-h-11 max-sm:size-11 max-sm:p-0" aria-label={t('add.cta')} title={t('add.cta')}>
-            <span className="max-sm:hidden">{t('add.cta')}</span>
-          </Button>
+          {canAddDevices && (
+            <Button variant="amber" icon="plus" onClick={() => openAddDevice()} className="min-h-11 max-sm:size-11 max-sm:p-0" aria-label={t('add.cta')} title={t('add.cta')}>
+              <span className="max-sm:hidden">{t('add.cta')}</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -142,9 +145,11 @@ export function HomePage() {
         <CardSkeleton />
       ) : devices.length === 0 ? (
         <EmptyState icon="home" title={t('home.empty.title')} body={canAdmin ? t('add.emptyBody') : t('home.empty.body')}>
-          <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
-            {t('add.cta')}
-          </Button>
+          {canAddDevices && (
+            <Button variant="amber" icon="plus" onClick={() => openAddDevice()}>
+              {t('add.cta')}
+            </Button>
+          )}
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-7">

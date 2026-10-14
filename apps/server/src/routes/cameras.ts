@@ -1,5 +1,5 @@
-import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
-import { LivynqError, redactUrl, type Home } from '@livynq/core';
+import type { FastifyInstance, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
+import { LivynqError, canSeeDevice, redactUrl, type Home } from '@livynq/core';
 import { SnapshotCache, SnapshotError, StreamHub, type Viewer } from '@livynq/media';
 
 /**
@@ -46,16 +46,19 @@ export function registerCameraRoutes(app: FastifyInstance, home: Home, hub: Stre
   const snapshots = new SnapshotCache();
   app.addHook('onClose', async () => hub.close());
 
-  const camera = (params: unknown) => {
-    const { deviceId, endpointId } = params as { deviceId: string; endpointId: string };
+  const camera = (req: FastifyRequest) => {
+    const { deviceId, endpointId } = req.params as { deviceId: string; endpointId: string };
     const ep = Number(endpointId);
     const device = home.registry.getDevice(deviceId);
-    if (!device || !device.endpoints.some((e) => e.id === ep && e.capabilities.includes('camera'))) throw new LivynqError('NOT_FOUND', `No camera ${deviceId}/${endpointId}`);
+    // Cameras in rooms an account can't see don't exist for it.
+    if (!device || !device.endpoints.some((e) => e.id === ep && e.capabilities.includes('camera')) || (req.access && !canSeeDevice(req.access, device))) {
+      throw new LivynqError('NOT_FOUND', `No camera ${deviceId}/${endpointId}`);
+    }
     return { deviceId, endpointId: ep, k: key(deviceId, ep) };
   };
 
   app.get('/api/v1/cameras/:deviceId/:endpointId/snapshot.jpg', guards.read, async (req, reply) => {
-    const { deviceId, endpointId, k } = camera(req.params);
+    const { deviceId, endpointId, k } = camera(req);
     try {
       const snap = await snapshots.get(k, home.media.get(deviceId, endpointId)?.source);
       return reply.header('cache-control', 'no-store').type(snap.contentType).send(snap.data);
@@ -68,7 +71,7 @@ export function registerCameraRoutes(app: FastifyInstance, home: Home, hub: Stre
   app.get('/api/v1/cameras/:deviceId/:endpointId/live', { websocket: true, preHandler: guards.read.preHandler }, (socket, req) => {
     let target: { k: string };
     try {
-      target = camera(req.params);
+      target = camera(req);
     } catch (err) {
       socket.send(JSON.stringify({ type: 'error', message: (err as Error).message }));
       socket.close(4404, 'not found');

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { Icon, type IconName } from '../components/icons.tsx';
-import { LangSwitch, ThemeSwitch } from '../components/shell.tsx';
+import { LangSwitch, ThemeSwitch, useHiddenRoutes } from '../components/shell.tsx';
 import { Badge, Button, Card, PageHeader, SectionLabel } from '../components/ui.tsx';
 import { OpenWallButton, WallSettingsForm } from '../components/wall-settings-form.tsx';
 import { NotificationsCard } from '../components/notifications-card.tsx';
 import { AssistantSettingsCard } from '../components/assistant-settings.tsx';
+import { AccountCard, UsersCard } from '../components/users-settings.tsx';
 import { signOut } from '../lib/api.ts';
 import { formatDuration } from '../lib/format.ts';
 import { useLang, useT, type MessageKey } from '../lib/i18n.ts';
@@ -66,23 +67,8 @@ export function SettingsPage() {
         </Card>
         <AssistantSettingsCard />
         <NotificationsCard />
-        <Card className="flex flex-col gap-3">
-          <SectionLabel>{t('settings.session')}</SectionLabel>
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-[11px] bg-chip">
-              <Icon name="key" size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs text-muted">{t('settings.signedInAs')}</div>
-              <div className="truncate text-sm font-bold">
-                {me?.name ?? '—'} {me && <Badge className="ml-1">{t(`agents.scope.${me.scope}`)}</Badge>}
-              </div>
-            </div>
-            <Button icon="logOut" onClick={signOut}>
-              {t('settings.signOut')}
-            </Button>
-          </div>
-        </Card>
+        <AccountCard />
+        <UsersCard />
       </div>
     </>
   );
@@ -101,11 +87,12 @@ const moreItems: { route: Route; icon: IconName; label: MessageKey; soon?: boole
 /** Mobile overflow menu for destinations that do not fit the 5-slot tab bar. */
 export function MorePage() {
   const t = useT();
+  const hidden = useHiddenRoutes();
   return (
     <>
       <PageHeader title={t('more.title')} />
       <Card className="flex flex-col p-1.5!">
-        {moreItems.map((m) => (
+        {moreItems.filter((m) => !hidden.has(m.route)).map((m) => (
           <a key={m.route} href={href(m.route)} className="flex items-center gap-3 rounded-[15px] p-3 text-ink! no-underline transition-colors duration-base hover:bg-surface2">
             <span className="grid size-9 place-items-center rounded-[11px] bg-chip text-muted">
               <Icon name={m.icon} size={17} />

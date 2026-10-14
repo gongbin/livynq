@@ -6,9 +6,9 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, t
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { Logger as PinoLogger } from 'pino';
-import { createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Adapter, type Confirmation, type HomeNotification, type TokenInfo, type TokenScope } from '@livynq/core';
+import { accessFor, canSeeDevice, createBackup, Home, LivynqError, scopeAllows, toDeviceDTO, type Access, type Adapter, type Confirmation, type HomeNotification, type TokenInfo, type TokenScope } from '@livynq/core';
 import type { Availability, CommandBody, Device, ExposurePolicy, Level, Risk, HomeKitBridgeInfo, Room, StateChange, SystemInfo, WsClientMessage, WsServerMessage } from '@livynq/model';
-import { createLocalHomeApi, handleMcpHttpRequest } from '@livynq/agent';
+import { createLocalHomeApi, handleMcpHttpRequest, restrictHomeApi } from '@livynq/agent';
 import type { StreamHub } from '@livynq/media';
 import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
@@ -21,6 +21,7 @@ import { PluginManager } from './plugins/manager.ts';
 import { registerSpaceRoutes } from './routes/spaces.ts';
 import { registerPushRoutes } from './routes/push.ts';
 import { registerAssistantRoutes } from './routes/assistant.ts';
+import { registerUserRoutes } from './routes/users.ts';
 import { createCameraHub, registerCameraRoutes } from './routes/cameras.ts';
 import { PushService } from './push.ts';
 import type { LivynqConfig } from './config.ts';
@@ -28,7 +29,10 @@ import type { PluginDefinition } from '@livynq/sdk';
 
 declare module 'fastify' {
   interface FastifyRequest {
+    /** The token with its effective scope / risk limit (capped by the user's role) and audit name. */
     auth?: TokenInfo;
+    /** Who is calling and what they may see (rooms) */
+    access?: Access;
   }
 }
 
@@ -91,37 +95,63 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   });
 
   // ------------------------------------------------------------------ auth
-  const authenticate = (req: FastifyRequest): TokenInfo => {
+  const authenticate = (req: FastifyRequest): Access => {
     const header = req.headers.authorization;
     const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
     // Browsers cannot set headers on WebSocket connections or CSS images, so those may pass ?token=.
     const query = req.url.startsWith('/api/v1/ws') || req.url.startsWith('/api/v1/cameras/') || req.url.startsWith('/api/v1/ui/wall-background') || /^\/api\/v1\/levels\/[^/]+\/background/.test(req.url) ? (req.query as Record<string, string | undefined>).token : undefined;
     const info = home.tokens.verify(bearer ?? query);
-    if (!info) throw new LivynqError('UNAUTHORIZED', 'Missing or invalid access token', 'Pass "Authorization: Bearer lvq_..."');
-    return info;
+    const access = info && accessFor(info, home.users);
+    if (!access) throw new LivynqError('UNAUTHORIZED', 'Missing or invalid access token', 'Sign in again, or pass "Authorization: Bearer lvq_..."');
+    return access;
+  };
+  const attach = (req: FastifyRequest, access: Access) => {
+    req.access = access;
+    // Routes read scope / risk limit / name from req.auth: give them the effective values.
+    req.auth = { ...access.token, scope: access.scope, riskLimit: access.riskLimit, name: access.label };
   };
   const requireScope = (scope: TokenScope) => async (req: FastifyRequest) => {
-    req.auth = authenticate(req);
-    if (!scopeAllows(req.auth.scope, scope)) throw new LivynqError('FORBIDDEN', `This token has scope "${req.auth.scope}", "${scope}" is required`);
+    attach(req, authenticate(req));
+    if (!scopeAllows(req.auth!.scope, scope)) throw new LivynqError('FORBIDDEN', `This account has "${req.auth!.scope}" access, "${scope}" is required`);
   };
   const read = { preHandler: requireScope('read') };
   const control = { preHandler: requireScope('control') };
   const admin = { preHandler: requireScope('admin') };
-  const source = (req: FastifyRequest) => `api:${req.auth?.name ?? 'unknown'}`;
+  // Signs in when a token is given, otherwise continues anonymously (first-run setup).
+  const maybeAuth = {
+    preHandler: async (req: FastifyRequest) => {
+      try {
+        attach(req, authenticate(req));
+      } catch {
+        // anonymous
+      }
+    },
+  };
+  /** Audit source: people via the web UI, scripts and agents via their token name. */
+  const source = (req: FastifyRequest) => (req.access?.token.kind === 'session' ? `web:${req.access.label}` : `api:${req.auth?.name ?? 'unknown'}`);
+  const sees = (req: FastifyRequest) => (d: Device) => canSeeDevice(req.access!, d);
+  /** Hidden devices look exactly like missing ones. */
+  const visibleDevice = (req: FastifyRequest, ref: string, capability?: string) => {
+    const target = home.resolveTarget(ref, capability);
+    if (!canSeeDevice(req.access!, target.device)) throw new LivynqError('NOT_FOUND', `Device not found: ${ref}`);
+    return target;
+  };
+  const unrestricted = (req: FastifyRequest) => {
+    if (req.access!.rooms !== null) throw new LivynqError('FORBIDDEN', 'This account only has access to some rooms');
+  };
 
   // ------------------------------------------------------------------ system
   app.get('/api/v1/system/info', read, async (): Promise<SystemInfo> => api.info());
-  app.get('/api/v1/auth/me', read, async (req) => ({ token: req.auth }));
   app.get('/api/v1/health', async () => ({ ok: true }));
 
   // ------------------------------------------------------------------ devices
   app.get('/api/v1/devices', read, async (req) => {
     const q = req.query as Record<string, string | undefined>;
-    return home.findDevices({ text: q.q, room: q.room, domain: q.domain, capability: q.capability }).map((d) => toDeviceDTO(home, d));
+    return home.findDevices({ text: q.q, room: q.room, domain: q.domain, capability: q.capability }).filter(sees(req)).map((d) => toDeviceDTO(home, d));
   });
   app.get('/api/v1/devices/:id', read, async (req) => {
     const { id } = req.params as { id: string };
-    return toDeviceDTO(home, home.resolveTarget(id).device);
+    return toDeviceDTO(home, visibleDevice(req, id).device);
   });
   app.patch('/api/v1/devices/:id', admin, async (req) => {
     const { id } = req.params as { id: string };
@@ -144,9 +174,10 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     if (typeof body.capability !== 'string' || typeof body.command !== 'string') {
       throw new LivynqError('INVALID_PARAMS', 'Body must be { capability, command, params? }');
     }
+    visibleDevice(req, id);
     const result = await home.confirmations.guard(
       { deviceId: id, endpointId: Number(ep), capability: body.capability, command: body.command, params: body.params },
-      { source: source(req), riskLimit: req.auth!.riskLimit },
+      { source: source(req), riskLimit: req.auth!.riskLimit, canRequestApproval: req.access!.canRequestApproval },
     );
     if (result.status === 'pending') return reply.status(202).send({ ok: false, pending: true, confirmation: result.confirmation });
     return { ok: true };
@@ -155,12 +186,15 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const { id } = req.params as { id: string };
     const q = req.query as Record<string, string | undefined>;
     if (!q.capability || !q.attribute) throw new LivynqError('INVALID_PARAMS', 'capability and attribute are required');
-    const target = home.resolveTarget(q.endpoint ? `${id}#${q.endpoint}` : id, q.capability);
+    const target = visibleDevice(req, q.endpoint ? `${id}#${q.endpoint}` : id, q.capability);
     const to = q.to ? Number(q.to) : Date.now();
     const from = q.from ? Number(q.from) : to - 24 * 3600 * 1000;
     return home.registry.history(target.device.id, target.endpointId, q.capability, q.attribute, from, to);
   });
-  app.get('/api/v1/entities', read, async () => home.registry.listEntities());
+  app.get('/api/v1/entities', read, async (req) => {
+    const shown = new Set(home.registry.listDevices().filter(sees(req)).map((d) => d.id));
+    return home.registry.listEntities().filter((e) => shown.has(e.deviceId));
+  });
   app.patch('/api/v1/entities/:entityId', admin, async (req) => {
     const { entityId } = req.params as { entityId: string };
     const body = (req.body ?? {}) as { entityId?: string };
@@ -169,7 +203,10 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   });
 
   // ------------------------------------------------------------------ rooms
-  app.get('/api/v1/rooms', read, async () => home.registry.listRooms());
+  app.get('/api/v1/rooms', read, async (req) => {
+    const rooms = req.access!.rooms;
+    return home.registry.listRooms().filter((r) => rooms === null || rooms.has(r.id));
+  });
   app.post('/api/v1/rooms', admin, async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; aliases?: string[] };
     return reply.status(201).send(home.registry.createRoom({ name: body.name ?? '', aliases: body.aliases }));
@@ -185,11 +222,15 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   });
   app.delete('/api/v1/rooms/:id', admin, async (req, reply) => {
     home.registry.deleteRoom((req.params as { id: string }).id);
+    // A guest limited to that room now has fewer rooms, never "all rooms".
+    home.users.pruneRooms(new Set(home.registry.listRooms().map((r) => r.id)));
     return reply.status(204).send();
   });
 
   // ------------------------------------------------------------------ ecosystems & audit
-  app.get('/api/v1/homekit', read, async () => {
+  // Pairing codes let a phone take over every exposed device: not for room-restricted accounts.
+  app.get('/api/v1/homekit', read, async (req) => {
+    unrestricted(req);
     const provider = home.exporter('homekit') as unknown as HomeKitInfoProvider | undefined;
     return { enabled: Boolean(provider), bridges: provider?.bridges() ?? [] };
   });
@@ -206,35 +247,64 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const { id, name } = req.params as { id: string; name: string };
     return { result: (await home.invokeAction(id, name, (req.body ?? {}) as Record<string, unknown>, source(req))) ?? null };
   });
-  app.get('/api/v1/matter', read, async () => {
+  app.get('/api/v1/matter', read, async (req) => {
+    unrestricted(req);
     const matter = home.exporter('matter') as unknown as { info(): unknown } | undefined;
     return matter?.info() ?? { enabled: false };
   });
   app.get('/api/v1/commands/recent', read, async (req) => {
     const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 50));
-    return home.recentCommands(limit);
+    if (req.access!.rooms === null) return home.recentCommands(limit);
+    const shown = new Set(home.registry.listDevices().filter(sees(req)).map((d) => d.id));
+    return home.recentCommands(500).filter((c) => shown.has(String(c.device_id))).slice(0, limit);
   });
 
   // ------------------------------------------------------------------ tokens
-  app.get('/api/v1/tokens', admin, async () => home.tokens.list());
-  app.post('/api/v1/tokens', admin, async (req, reply) => {
+  // API tokens (agents, scripts): admins see all, everyone else their own. Sessions are not listed.
+  const tokenRow = (t: TokenInfo) => {
+    const owner = t.userId ? home.users.get(t.userId) : undefined;
+    return { ...t, owner: owner ? { id: owner.id, username: owner.username, displayName: owner.displayName } : null };
+  };
+  app.get('/api/v1/tokens', control, async (req) => {
+    const a = req.access!;
+    return home.tokens.list({ kind: 'api' }).filter((t) => a.scope === 'admin' || (a.user && t.userId === a.user.id)).map(tokenRow);
+  });
+  app.post('/api/v1/tokens', control, async (req, reply) => {
+    const a = req.access!;
+    if (!a.canRequestApproval) throw new LivynqError('FORBIDDEN', 'Guest accounts cannot create access tokens');
     const body = (req.body ?? {}) as { name?: string; scope?: TokenScope; riskLimit?: Risk };
-    return reply.status(201).send(home.tokens.create(body.name ?? 'token', body.scope ?? 'read', body.riskLimit));
+    const scope = body.scope ?? 'read';
+    if (!scopeAllows(a.scope, scope)) throw new LivynqError('FORBIDDEN', `You can create tokens up to "${a.scope}"`);
+    const created = home.tokens.create(body.name ?? 'token', scope, body.riskLimit, { userId: a.user?.id ?? null });
+    return reply.status(201).send({ ...created, info: tokenRow(created.info) });
   });
 
   // ------------------------------------------------------------------ confirmations (human in the loop)
+  const seesConfirmation = (req: FastifyRequest, c: { request: { deviceId: string } }) => {
+    const d = home.registry.getDevice(c.request.deviceId);
+    return !d || canSeeDevice(req.access!, d);
+  };
   app.get('/api/v1/confirmations', read, async (req) => {
     const status = (req.query as { status?: string }).status;
-    return home.confirmations.list(status as never);
+    return home.confirmations.list(status as never).filter((c) => seesConfirmation(req, c));
   });
-  app.get('/api/v1/confirmations/:id', read, async (req) => home.confirmations.get((req.params as { id: string }).id));
-  app.post('/api/v1/confirmations/:id/approve', admin, async (req) => home.confirmations.approve((req.params as { id: string }).id, `web:${req.auth!.name}`));
-  app.post('/api/v1/confirmations/:id/deny', admin, async (req) => home.confirmations.deny((req.params as { id: string }).id, `web:${req.auth!.name}`));
-  app.delete('/api/v1/tokens/:id', admin, async (req, reply) => {
-    home.tokens.revoke((req.params as { id: string }).id);
+  app.get('/api/v1/confirmations/:id', read, async (req) => {
+    const c = home.confirmations.get((req.params as { id: string }).id);
+    if (!seesConfirmation(req, c)) throw new LivynqError('NOT_FOUND', 'Confirmation not found');
+    return c;
+  });
+  // Only admins approve: members and guests can't let an agent unlock the door.
+  app.post('/api/v1/confirmations/:id/approve', admin, async (req) => home.confirmations.approve((req.params as { id: string }).id, source(req).replace(/^api:/, 'web:')));
+  app.post('/api/v1/confirmations/:id/deny', admin, async (req) => home.confirmations.deny((req.params as { id: string }).id, source(req).replace(/^api:/, 'web:')));
+  app.delete('/api/v1/tokens/:id', control, async (req, reply) => {
+    const t = home.tokens.get((req.params as { id: string }).id);
+    const a = req.access!;
+    if (!t || t.kind !== 'api' || (a.scope !== 'admin' && (!a.user || t.userId !== a.user.id))) throw new LivynqError('NOT_FOUND', 'Token not found');
+    home.tokens.revoke(t.id);
     return reply.status(204).send();
   });
 
+  registerUserRoutes(app, home, { read, admin, optional: maybeAuth });
   registerAutomationRoutes(app, home, { read, control, admin, source });
   registerImportRoutes(app, home, { admin, source });
   registerUiRoutes(app, home, { read, admin });
@@ -258,7 +328,7 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   // ------------------------------------------------------------------ MCP (Streamable HTTP)
   app.all('/mcp', read, async (req, reply) => {
     reply.hijack();
-    await handleMcpHttpRequest(req.raw, reply.raw, req.body, { api, scope: req.auth!.scope, riskLimit: req.auth!.riskLimit, clientName: req.auth!.name, version: VERSION });
+    await handleMcpHttpRequest(req.raw, reply.raw, req.body, { api: restrictHomeApi(api, req.access!), scope: req.auth!.scope, riskLimit: req.auth!.riskLimit, clientName: req.auth!.name, version: VERSION });
   });
 
   // ------------------------------------------------------------------ WebSocket
@@ -266,31 +336,64 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerCameraRoutes(app, home, options.cameras ?? createCameraHub(home), { read });
   app.get('/api/v1/ws', { websocket: true, preHandler: requireScope('read') }, (socket, req) => {
     const auth = req.auth!;
+    const access = req.access!;
     const send = (msg: WsServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
     };
-    send({ type: 'snapshot', devices: home.registry.listDevices().map((d) => toDeviceDTO(home, d)), rooms: home.registry.listRooms(), levels: home.spaces.listLevels() });
+    // Room-restricted accounts only ever hear about what they can see.
+    const allowedRooms = access.rooms;
+    const roomsFor = (rooms: Room[]) => (allowedRooms === null ? rooms : rooms.filter((r) => allowedRooms.has(r.id)));
+    const levelsFor = (levels: Level[]) => {
+      if (allowedRooms === null) return levels;
+      const keep = new Set(roomsFor(home.registry.listRooms()).map((r) => r.levelId));
+      return levels.filter((l) => keep.has(l.id));
+    };
+    const shown = new Set<string>();
+    const visibleId = (deviceId: string) => {
+      if (allowedRooms === null) return true;
+      const d = home.registry.getDevice(deviceId);
+      return Boolean(d && canSeeDevice(access, d));
+    };
+    const snapshot = home.registry.listDevices().filter((d) => canSeeDevice(access, d));
+    for (const d of snapshot) shown.add(d.id);
+    send({ type: 'snapshot', devices: snapshot.map((d) => toDeviceDTO(home, d)), rooms: roomsFor(home.registry.listRooms()), levels: levelsFor(home.spaces.listLevels()) });
     const off = home.bus.onAny((event, payload) => {
       switch (event) {
         case 'state': {
           const c = payload as StateChange;
+          if (!visibleId(c.deviceId)) return;
           return send({ type: 'state', deviceId: c.deviceId, endpointId: c.endpointId, capability: c.capability, attribute: c.attribute, value: c.value, source: c.source, ts: c.ts });
         }
         case 'device.added':
-        case 'device.updated':
-          return send({ type: 'device', device: toDeviceDTO(home, payload as Device) });
-        case 'device.removed':
-          return send({ type: 'device.removed', id: (payload as { id: string }).id });
+        case 'device.updated': {
+          const d = payload as Device;
+          if (canSeeDevice(access, d)) {
+            shown.add(d.id);
+            return send({ type: 'device', device: toDeviceDTO(home, d) });
+          }
+          // Moved out of the allowed rooms: gone for this viewer.
+          if (shown.delete(d.id)) send({ type: 'device.removed', id: d.id });
+          return;
+        }
+        case 'device.removed': {
+          const id = (payload as { id: string }).id;
+          if (allowedRooms !== null && !shown.delete(id)) return;
+          return send({ type: 'device.removed', id });
+        }
         case 'availability': {
           const a = payload as { deviceId: string; availability: Availability };
+          if (!visibleId(a.deviceId)) return;
           return send({ type: 'availability', deviceId: a.deviceId, availability: a.availability });
         }
         case 'rooms.changed':
-          return send({ type: 'rooms', rooms: payload as Room[] });
-        case 'confirmation':
-          return send({ type: 'confirmation', confirmation: payload as Confirmation });
+          return send({ type: 'rooms', rooms: roomsFor(payload as Room[]) });
+        case 'confirmation': {
+          const c = payload as Confirmation;
+          if (!visibleId(c.request.deviceId)) return;
+          return send({ type: 'confirmation', confirmation: c });
+        }
         case 'levels.changed':
-          return send({ type: 'levels', levels: payload as Level[] });
+          return send({ type: 'levels', levels: levelsFor(payload as Level[]) });
         case 'notification': {
           const n = payload as HomeNotification;
           if (n.kind === 'confirmation' && auth.scope !== 'admin') return;
@@ -311,9 +414,10 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
       if (msg?.type !== 'command' || typeof msg.id !== 'number') return;
       try {
         if (!scopeAllows(auth.scope, 'control')) throw new LivynqError('FORBIDDEN', 'Token cannot control devices');
+        if (!visibleId(msg.deviceId)) throw new LivynqError('NOT_FOUND', `Device not found: ${msg.deviceId}`);
         const result = await home.confirmations.guard(
           { deviceId: msg.deviceId, endpointId: msg.endpointId, capability: msg.capability, command: msg.command, params: msg.params },
-          { source: `web:${auth.name}`, riskLimit: auth.riskLimit },
+          { source: `web:${auth.name}`, riskLimit: auth.riskLimit, canRequestApproval: access.canRequestApproval },
         );
         if (result.status === 'pending') {
           send({ type: 'result', id: msg.id, ok: false, error: { code: 'CONFIRMATION_REQUIRED', message: `Needs approval: ${result.confirmation.summary}`, hint: result.confirmation.id } });
@@ -323,7 +427,15 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
         send({ type: 'result', id: msg.id, ok: false, error: e.toJSON() });
       }
     });
-    socket.on('close', off);
+    // A revoked session or a disabled account closes the live connection too.
+    const recheck = setInterval(() => {
+      const t = home.tokens.get(access.token.id);
+      if (!t || !accessFor(t, home.users)) socket.close(4001, 'signed out');
+    }, 30_000);
+    socket.on('close', () => {
+      off();
+      clearInterval(recheck);
+    });
   });
 
   // ------------------------------------------------------------------ web UI
