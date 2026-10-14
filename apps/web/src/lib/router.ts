@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export const routes = ['home', 'devices', 'rooms', 'automations', 'agents', 'migrate', 'ecosystems', 'settings', 'more', 'wall'] as const;
+export const routes = ['home', 'devices', 'rooms', 'automations', 'agents', 'migrate', 'ecosystems', 'plugins', 'settings', 'more', 'wall'] as const;
 export type Route = (typeof routes)[number];
 
 /** Tiny hash router: `#/devices` → 'devices'. Unknown paths fall back to home. */

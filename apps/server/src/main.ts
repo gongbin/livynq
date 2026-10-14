@@ -2,13 +2,13 @@
 import { parseArgs } from 'node:util';
 import { actionToCommand, actions, describeCommands, endpointForTarget, serveMcpStdio, summarizeDevice, type Action } from '@livynq/agent';
 import type { Risk, TokenScope } from '@livynq/model';
-import { loadConfig, updatePluginsInConfig, type ConfigOverrides } from './config.ts';
+import { loadConfig, type ConfigOverrides } from './config.ts';
 import { ApiError, RemoteClient, resolveRemote } from './cli/remote.ts';
 import { deviceRows, table } from './cli/format.ts';
+import { pluginAdd, pluginRemove, pluginUpgrade } from './cli/plugins.ts';
 import { VERSION } from './version.ts';
 import { bundledPlugins } from './bundled.ts';
 import type { ImportPlan } from '@livynq/importer-homeassistant';
-import type { PluginEntry } from '@livynq/plugin-host';
 
 type HaReport = Omit<ImportPlan, 'operations'>;
 
@@ -41,8 +41,10 @@ Client (talks to a running hub; --url/--token or LIVYNQ_URL/LIVYNQ_TOKEN for rem
   imports list | imports revert <id>
   plugin list | plugin restart <id>
   plugin action <id> <name> [--params JSON]    e.g. plugin action matter commission --params '{"code":"34970112332"}'
-  plugin add <npm-package | ./path> [--isolation in-process]   Install and enable a plugin (restart to load)
-  plugin remove <id>
+  plugin add <npm-package[@version] | file.tgz | ./path> [--isolation in-process]
+                                Install and start a plugin (built-in installer, no npm needed)
+  plugin upgrade <id>           Install the newest version from the registry
+  plugin remove <id>            Stop, forget and delete a plugin
   backup create [--out file] [--password P]    Download a backup from the running hub
   backup restore <file> [--password P]         Restore into the data dir (stop the hub first)
   backup inspect <file> [--password P]
@@ -323,33 +325,17 @@ async function run(): Promise<void> {
     case 'plugin':
     case 'plugins': {
       if (sub === 'add' && rest[0]) {
-        const config = loadConfig(overrides());
-        const target = rest[0];
-        const isPath = target.startsWith('.') || target.startsWith('/');
-        if (!isPath) {
-          const { execFileSync } = await import('node:child_process');
-          const { mkdirSync } = await import('node:fs');
-          const prefix = `${config.dataDir}/plugins`;
-          mkdirSync(prefix, { recursive: true });
-          process.stderr.write(`installing ${target} into ${prefix} …\n`);
-          execFileSync('npm', ['install', '--prefix', prefix, '--omit=dev', '--no-fund', '--no-audit', target], { stdio: ['ignore', 'inherit', 'inherit'] });
-        }
-        const { resolve } = await import('node:path');
-        const name = isPath ? undefined : target.replace(/(?<=.)@[^/]+$/, '');
-        const entry: PluginEntry = { ...(isPath ? { path: resolve(target) } : { module: name }), ...(str('isolation') === 'in-process' ? { isolation: 'in-process' as const } : {}) };
-        updatePluginsInConfig(config.configFile, { add: entry });
-        return print(`added to ${config.configFile}; restart Livynq to load it`, { ok: true, entry });
+        const isolation = str('isolation');
+        const r = await pluginAdd(loadConfig(overrides()), client, rest[0], isolation === 'in-process' || isolation === 'process' ? { isolation } : {});
+        return print(r.text, r.data);
       }
       if (sub === 'remove' && rest[0]) {
-        const config = loadConfig(overrides());
-        const removed = updatePluginsInConfig(config.configFile, {
-          remove: (p) => {
-            const id = p.id ?? (p.module ?? p.path ?? '').replace(/^.*\//, '').replace(/^livynq-plugin-|^plugin-/, '').replace(/\.(ts|js)$/, '');
-            return id === rest[0] || p.module === rest[0];
-          },
-        });
-        if (!removed) throw new ApiError(404, 'NOT_FOUND', `No plugin "${rest[0]}" in ${config.configFile}`);
-        return print('removed from config; restart Livynq to unload it', { ok: true });
+        const r = await pluginRemove(loadConfig(overrides()), client, rest[0]);
+        return print(r.text, r.data);
+      }
+      if (sub === 'upgrade' && rest[0]) {
+        const r = await pluginUpgrade(loadConfig(overrides()), client, rest[0]);
+        return print(r.text, r.data);
       }
       const c = client();
       if (sub === 'action' && rest[0] && rest[1]) {

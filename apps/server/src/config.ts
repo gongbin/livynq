@@ -21,6 +21,8 @@ export interface LivynqConfig {
   backup: { automatic: boolean; keep: number };
   matter: { bridge: { enabled: boolean; port: number; passcode?: number; discriminator?: number }; networkInterface?: string };
   plugins: PluginEntry[];
+  /** npm registry the plugin installer uses (`npmRegistry` in livynq.yaml, env LIVYNQ_NPM_REGISTRY). */
+  npmRegistry: string;
   configFile: string;
 }
 
@@ -87,6 +89,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
       networkInterface: yaml.matter?.networkInterface,
     },
     plugins: Array.isArray(yaml.plugins) ? (yaml.plugins as PluginEntry[]) : [],
+    npmRegistry: String(env.LIVYNQ_NPM_REGISTRY ?? yaml.npmRegistry ?? 'https://registry.npmjs.org').replace(/\/$/, ''),
     configFile: file,
     backup: { automatic: yaml.backup?.automatic ?? true, keep: Number(yaml.backup?.keep ?? 7) },
     location:
@@ -94,6 +97,13 @@ export function loadConfig(overrides: ConfigOverrides = {}): LivynqConfig {
         ? { latitude: Number(yaml.location.latitude), longitude: Number(yaml.location.longitude) }
         : undefined,
   };
+}
+
+/** The `plugins:` entries currently in livynq.yaml (re-read; the UI and CLI edit it at runtime). */
+export function readPluginEntries(file: string): PluginEntry[] {
+  if (!existsSync(file)) return [];
+  const yaml = (parse(readFileSync(file, 'utf8')) ?? {}) as { plugins?: unknown };
+  return Array.isArray(yaml.plugins) ? (yaml.plugins as PluginEntry[]).filter((p) => p && typeof p === 'object') : [];
 }
 
 /**

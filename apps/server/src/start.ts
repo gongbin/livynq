@@ -15,6 +15,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LivynqConfig } from './config.ts';
 import { createServer } from './server.ts';
+import { PluginInstaller, pluginsDir } from './plugins/installer.ts';
 import { VERSION } from './version.ts';
 
 export interface RunningInstance {
@@ -51,6 +52,12 @@ export async function startLivynq(config: LivynqConfig, options: StartOptions = 
   if (process.env.SUPERVISOR_TOKEN && !plugins.some((p) => p.module === '@livynq/plugin-homeassistant')) {
     plugins.push({ module: '@livynq/plugin-homeassistant', isolation: 'in-process' });
     logger.info('Home Assistant add-on detected: bridging Home Assistant entities');
+  }
+  try {
+    // Installed plugins re-export this hub's SDK; a newer hub may export more.
+    new PluginInstaller({ dir: pluginsDir(config.dataDir), hubVersion: VERSION }).refreshShims();
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'could not refresh plugin SDK shims');
   }
   for (const entry of plugins) {
     if (entry.enabled === false) continue;

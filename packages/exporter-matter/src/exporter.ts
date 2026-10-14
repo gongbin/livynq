@@ -27,7 +27,7 @@ import { OccupancySensingServer } from '@matter/main/behaviors/occupancy-sensing
 import { ThermostatServer } from '@matter/main/behaviors/thermostat';
 import { WindowCoveringServer, MovementType, MovementDirection } from '@matter/main/behaviors/window-covering';
 import { LivynqError, type Exporter, type Home, type Logger as LivynqLogger } from '@livynq/core';
-import type { AttributeValue, Device, DeviceId } from '@livynq/model';
+import type { AttributeValue, Device, DeviceId, MatterBridgeInfo } from '@livynq/model';
 import { degreesToHue } from '@livynq/model';
 
 export interface MatterExporterOptions {
@@ -43,15 +43,7 @@ export interface MatterExporterOptions {
   forwardLocalChanges?: boolean;
 }
 
-export interface MatterBridgeInfo {
-  enabled: boolean;
-  commissioned: boolean;
-  qrPairingCode: string | null;
-  manualPairingCode: string | null;
-  port: number;
-  fabrics: { label: string; vendorId: number }[];
-  deviceCount: number;
-}
+export type { MatterBridgeInfo };
 
 type Route = { deviceId: DeviceId; endpointId: number };
 

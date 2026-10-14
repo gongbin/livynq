@@ -167,10 +167,21 @@ plugins:
     config: { port: /dev/serial/by-id/usb-… }
   - module: "@livynq/plugin-shelly"         # Shelly 二代及以上，本地 RPC，mDNS 自动发现
   - module: "@livynq/plugin-hue"            # Philips Hue 桥（本地 CLIP v2 + 事件流）
+  - module: "@livynq/plugin-xiaomi"         # 米家：扫码登录一次，Wi-Fi 设备局域网直连（miIO / MIoT）
   - module: "@livynq/plugin-matter"         # Matter 控制器（配对码 / 二维码）
 ```
 
 以上插件都可以在网页的“添加设备”里一键启用，不必手动编辑配置。
+
+第三方插件在网页“插件”页里安装（npm 包名或上传 `.tgz`）、升级、配置、停用和卸载，立即生效、无需重启；也可以用命令行：
+
+```bash
+livynq plugin add livynq-plugin-acme      # 或 ./plugin.tgz、./本地目录
+livynq plugin upgrade acme
+livynq plugin remove acme                 # 同时删除文件
+```
+
+安装器内置在 Livynq 里，单文件程序和 HA 加载项不需要 npm；会校验每个包的哈希，**不会运行任何安装脚本**。插件拥有与 Livynq 相同的权限，只安装你信任的插件。
 
 每个插件运行在独立进程中，崩溃会自动重启，不影响其他设备与 HomeKit 桥。`livynq plugin list` 查看状态。
 
@@ -220,7 +231,7 @@ packages/agent         MCP 工具与 Agent 友好的设备摘要
 packages/automation    自动化引擎（HA 结构）
 packages/importer-homeassistant  HA 导入器
 packages/sdk, plugin-host        插件 SDK 与进程隔离宿主
-plugins/                官方插件：virtual、esphome、zigbee、zwave、matter、shelly、hue、homeassistant
+plugins/                官方插件：virtual、esphome、zigbee、zwave、matter、shelly、hue、xiaomi、homeassistant
 installers/            安装脚本
 ```
 

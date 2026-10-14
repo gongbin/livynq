@@ -5,6 +5,7 @@ import { LivynqError, type Adapter } from '@livynq/core';
 import { isPluginDefinition, type PluginDefinition } from '@livynq/sdk';
 import { InProcessPluginAdapter } from './in-process.ts';
 import { ProcessPluginAdapter } from './process-adapter.ts';
+import { provideSdk } from './sdk-host.ts';
 
 /** One entry of `plugins:` in livynq.yaml. */
 export interface PluginEntry {
@@ -25,6 +26,13 @@ export interface ResolvedPlugin {
   config: Record<string, unknown>;
   /** Plugins compiled into the hub (single executable): always run in-process. */
   definition?: PluginDefinition;
+}
+
+/** The plugin id an entry gets: `id`, else derived from the module name or path. */
+export function pluginIdFor(entry: PluginEntry): string {
+  if (entry.id) return entry.id;
+  if (entry.module) return entry.module.replace(/^@[^/]+\//, '').replace(/^livynq-plugin-|^plugin-/, '');
+  return basename(entry.path ?? '').replace(/\.(ts|js|mjs)$/, '');
 }
 
 function entryFromPackage(dir: string): string {
@@ -56,13 +64,13 @@ export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): Reso
     const p = isAbsolute(entry.path) ? entry.path : resolve(options.configDir, entry.path);
     if (!existsSync(p)) throw new LivynqError('NOT_FOUND', `Plugin path not found: ${p}`);
     file = existsSync(join(p, 'package.json')) ? entryFromPackage(p) : p;
-    defaultId = basename(p).replace(/\.(ts|js|mjs)$/, '');
+    defaultId = pluginIdFor({ path: p });
   } else if (entry.module) {
     const installed = join(options.dataDir, 'plugins', 'node_modules', entry.module);
     const bundled = options.bundled?.[entry.module];
     if (existsSync(join(installed, 'package.json'))) file = entryFromPackage(installed);
     else if (bundled) {
-      const id = entry.id ?? entry.module.replace(/^@[^/]+\//, '').replace(/^livynq-plugin-|^plugin-/, '');
+      const id = pluginIdFor(entry);
       return { id, file: `bundled:${entry.module}`, isolation: 'in-process', config: entry.config ?? {}, definition: bundled };
     } else {
       try {
@@ -73,7 +81,7 @@ export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): Reso
         throw new LivynqError('NOT_FOUND', `Plugin ${entry.module} is not installed`, `Run: livynq plugin add ${entry.module}`);
       }
     }
-    defaultId = entry.module.replace(/^@[^/]+\//, '').replace(/^livynq-plugin-|^plugin-/, '');
+    defaultId = pluginIdFor({ module: entry.module });
   } else {
     throw new LivynqError('INVALID_PARAMS', 'A plugin entry needs "module" or "path"');
   }
@@ -86,6 +94,7 @@ export function resolvePlugin(entry: PluginEntry, options: ResolveOptions): Reso
 export async function createPluginAdapter(plugin: ResolvedPlugin): Promise<Adapter> {
   if (plugin.definition) return new InProcessPluginAdapter(plugin.id, plugin.definition, plugin.config);
   if (plugin.isolation === 'process') return new ProcessPluginAdapter({ id: plugin.id, module: plugin.file, config: plugin.config });
+  provideSdk();
   const mod = (await import(pathToFileURL(plugin.file).href)) as { default?: unknown };
   if (!isPluginDefinition(mod.default)) throw new LivynqError('INVALID_PARAMS', `${plugin.file} must default-export defineAdapter({...})`);
   return new InProcessPluginAdapter(plugin.id, mod.default, plugin.config);

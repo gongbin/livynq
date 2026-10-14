@@ -13,13 +13,15 @@ import { VERSION } from './version.ts';
 import { registerAutomationRoutes } from './routes/automations.ts';
 import { registerImportRoutes } from './routes/imports.ts';
 import { registerUiRoutes, wallSettings } from './routes/ui.ts';
-import { registerOnboardingRoutes } from './routes/onboarding.ts';
+import { OFFICIAL, registerOnboardingRoutes } from './routes/onboarding.ts';
+import { registerPluginRoutes } from './routes/plugins.ts';
+import { PluginInstaller, pluginsDir } from './plugins/installer.ts';
+import { PluginManager } from './plugins/manager.ts';
 import { registerSpaceRoutes } from './routes/spaces.ts';
 import { registerPushRoutes } from './routes/push.ts';
 import { PushService } from './push.ts';
 import type { LivynqConfig } from './config.ts';
 import type { PluginDefinition } from '@livynq/sdk';
-import type { PluginRuntimeInfo } from '@livynq/plugin-host';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -38,6 +40,8 @@ export interface ServerOptions {
   /** Lets the "Add device" wizard enable plugins and persist them. */
   config?: LivynqConfig;
   bundledPlugins?: Record<string, PluginDefinition>;
+  /** Plugin lifecycle (tests inject one with a fake registry). */
+  plugins?: PluginManager;
   /** Web Push sender (tests inject one with a fake push service). */
   push?: PushService;
 }
@@ -193,21 +197,9 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
     const name = `livynq-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}${body.password ? '.lvqbak' : '.tar.gz'}`;
     return reply.header('content-type', 'application/octet-stream').header('content-disposition', `attachment; filename="${name}"`).send(data);
   });
-  app.get('/api/v1/plugins', admin, async () =>
-    home.adapters().map((id) => {
-      const adapter = home.adapter<Adapter & { info?: () => PluginRuntimeInfo }>(id);
-      return { ...(adapter?.info?.() ?? { id, isolation: 'in-process', status: 'running', module: id, builtin: true }), actions: home.actions(id) };
-    }),
-  );
   app.post('/api/v1/plugins/:id/actions/:name', admin, async (req) => {
     const { id, name } = req.params as { id: string; name: string };
     return { result: (await home.invokeAction(id, name, (req.body ?? {}) as Record<string, unknown>, source(req))) ?? null };
-  });
-  app.post('/api/v1/plugins/:id/restart', admin, async (req) => {
-    const adapter = home.adapter<Adapter & { restart?: () => Promise<void>; info: () => PluginRuntimeInfo }>((req.params as { id: string }).id);
-    if (!adapter?.restart) throw new LivynqError('NOT_SUPPORTED', 'Only process-isolated plugins can be restarted at runtime');
-    await adapter.restart();
-    return adapter.info();
   });
   app.get('/api/v1/matter', read, async () => {
     const matter = home.exporter('matter') as unknown as { info(): unknown } | undefined;
@@ -242,7 +234,19 @@ export async function createServer(home: Home, options: ServerOptions): Promise<
   registerImportRoutes(app, home, { admin, source });
   registerUiRoutes(app, home, { read, admin });
   registerSpaceRoutes(app, home, { read, admin });
-  registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, bundledPlugins: options.bundledPlugins });
+  const plugins =
+    options.plugins ??
+    new PluginManager(home, {
+      installer: new PluginInstaller({ dir: pluginsDir(home.dataDir), hubVersion: VERSION, registry: options.config?.npmRegistry }),
+      official: OFFICIAL,
+      hubVersion: VERSION,
+      configFile: options.config?.configFile,
+      initialEntries: options.config?.plugins,
+      bundled: options.bundledPlugins,
+      resolveBuiltin: (specifier) => fileURLToPath(import.meta.resolve(specifier)),
+    });
+  registerOnboardingRoutes(app, home, { read, admin }, { config: options.config, plugins });
+  registerPluginRoutes(app, home, plugins, { admin });
   registerPushRoutes(app, home, options.push ?? new PushService(home), { read, control });
 
   // ------------------------------------------------------------------ MCP (Streamable HTTP)

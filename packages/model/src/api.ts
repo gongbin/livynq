@@ -30,6 +30,19 @@ export interface HomeKitBridgeInfo {
   accessoryCount: number;
 }
 
+/** `GET /api/v1/matter`: the Matter bridge that shares Livynq devices with other ecosystems. */
+export interface MatterBridgeInfo {
+  enabled: boolean;
+  commissioned: boolean;
+  /** "MT:…" payload for the pairing QR code (null when the bridge is off) */
+  qrPairingCode: string | null;
+  manualPairingCode: string | null;
+  port: number;
+  /** Controllers (ecosystems) that added the bridge */
+  fabrics: { label: string; vendorId: number }[];
+  deviceCount: number;
+}
+
 export interface CommandBody {
   capability: string;
   command: string;

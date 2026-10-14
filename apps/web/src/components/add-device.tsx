@@ -7,7 +7,8 @@ import { describe, roomName } from '../lib/devices.ts';
 import { useT, type MessageKey } from '../lib/i18n.ts';
 import { live, useLive } from '../lib/live.ts';
 import { useCan } from '../lib/session.ts';
-import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, HuePanel, ShellyPanel, ZWavePanel } from './add-device-methods.tsx';
+import { href } from '../lib/router.ts';
+import { HomeAssistantPanel, MatterPanel, MqttPanel, VirtualPanel, ZigbeePanel, EspHomePanel, HuePanel, ShellyPanel, XiaomiPanel, ZWavePanel } from './add-device-methods.tsx';
 import { toneStyle } from './device-card.tsx';
 import { DeviceSheet } from './device-sheet.tsx';
 import { Icon, type IconName } from './icons.tsx';
@@ -35,6 +36,7 @@ const METHODS: MethodMeta[] = [
   { id: 'zigbee', icon: 'usb', name: 'Zigbee', desc: 'add.m.zigbee', tags: 'Aqara · IKEA · Hue · Tuya' },
   { id: 'zwave', icon: 'activity', name: 'Z-Wave', desc: 'add.m.zwave', tags: 'Aeotec · Fibaro · Zooz · Inovelli' },
   { id: 'esphome', icon: 'cpu', name: 'ESPHome', desc: 'add.m.esphome' },
+  { id: 'xiaomi', icon: 'home', name: '米家 Xiaomi', desc: 'add.m.xiaomi', tags: 'Mi Home · Yeelight · Mijia' },
   { id: 'hue', icon: 'bulb', name: 'Philips Hue', desc: 'add.m.hue', tags: 'Hue Bridge · Friends of Hue' },
   { id: 'shelly', icon: 'zap', name: 'Shelly', desc: 'add.m.shelly', tags: 'Plus · Pro · Gen3 · Gen4' },
   { id: 'mqtt', icon: 'radio', name: 'MQTT', desc: 'add.m.mqtt', tags: 'Zigbee2MQTT · Tasmota · ESPHome' },
@@ -322,6 +324,8 @@ function MethodPanel(props: PanelProps) {
       return <ShellyPanel {...props} method={method} />;
     case 'hue':
       return <HuePanel {...props} method={method} />;
+    case 'xiaomi':
+      return <XiaomiPanel {...props} method={method} />;
     case 'homeassistant':
       return <HomeAssistantPanel {...props} method={method} />;
     case 'virtual':
@@ -460,7 +464,12 @@ export function PluginHealth({ info, refresh }: { info: PluginInfo | null; refre
         <span className="font-bold">{info.status === 'disabled' ? t('add.health.disabled') : info.status === 'crashed' ? t('add.health.crashed') : t('add.health.error')}</span>
         {info.lastError && <span className="font-mono text-[12px] break-words">{info.lastError}</span>}
         {restartError && <span className="text-[12.5px]">{restartError}</span>}
-        <span className="text-[12.5px] text-pretty">{t('add.health.fix')}</span>
+        <span className="text-[12.5px] text-pretty">
+          {t('add.health.fix')}{' '}
+          <a href={href('plugins')} onClick={closeAddDevice} className="font-bold text-ink underline">
+            {t('plugins.manageLink')}
+          </a>
+        </span>
         {info.isolation === 'process' && (
           <span>
             <Button

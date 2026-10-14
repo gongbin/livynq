@@ -20,7 +20,7 @@ export const navItems: NavItem[] = [
   { route: 'rooms', icon: 'layers', label: 'nav.rooms' },
   { route: 'automations', icon: 'workflow', label: 'nav.automations' },
   { route: 'agents', icon: 'bot', label: 'nav.agents' },
-  { route: 'migrate', icon: 'import', label: 'nav.migrate', soon: true },
+  { route: 'migrate', icon: 'import', label: 'nav.migrate' },
   { route: 'ecosystems', icon: 'network', label: 'nav.ecosystems' },
 ];
 
@@ -32,7 +32,7 @@ const tabItems: NavItem[] = [
   { route: 'more', icon: 'more', label: 'nav.more' },
 ];
 
-const moreRoutes: Route[] = ['more', 'rooms', 'automations', 'migrate', 'settings'];
+const moreRoutes: Route[] = ['more', 'rooms', 'automations', 'migrate', 'plugins', 'settings'];
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   return (
@@ -83,6 +83,7 @@ function Sidebar({ route }: { route: Route }) {
           <Icon name="tablet" size={18} />
           {t('nav.wall')}
         </a>
+        <NavLink item={{ route: 'plugins', icon: 'puzzle', label: 'nav.plugins' }} active={route === 'plugins'} />
         <NavLink item={{ route: 'settings', icon: 'settings', label: 'nav.settings' }} active={route === 'settings'} />
       </nav>
       <div className="mt-auto flex flex-col gap-2.5">

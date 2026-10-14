@@ -1,0 +1,39 @@
+{
+  "name": "@livynq/plugin-xiaomi",
+  "version": "0.2.0",
+  "description": "Xiaomi / Mijia devices: Mi Home account sign-in, local miIO / MIoT control",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gongbin/livynq.git",
+    "directory": "plugins/xiaomi"
+  },
+  "homepage": "https://github.com/gongbin/livynq#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@livynq/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@livynq/core": "workspace:*",
+    "@livynq/plugin-host": "workspace:*"
+  }
+}

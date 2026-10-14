@@ -6,7 +6,10 @@ import { gunzipSync } from 'node:zlib';
  */
 export interface TarEntry {
   path: string;
-  type: 'file' | 'dir';
+  /** 'symlink' / 'link' only with `{ links: true }`. */
+  type: 'file' | 'dir' | 'symlink' | 'link';
+  /** Target of a (sym)link. */
+  linkTarget?: string;
   data: Buffer;
   mode: number;
   mtime: number;
@@ -25,8 +28,11 @@ function readOctal(buf: Buffer, offset: number, length: number): number {
   return s ? parseInt(s, 8) : 0;
 }
 
-/** Parses a tar (gzip is detected and inflated automatically). */
-export function readTar(input: Buffer): TarEntry[] {
+/**
+ * Parses a tar (gzip is detected and inflated automatically). Links are skipped unless
+ * `links: true` (then reported so callers can refuse them, e.g. untrusted npm packages).
+ */
+export function readTar(input: Buffer, options: { links?: boolean } = {}): TarEntry[] {
   const buf = input[0] === 0x1f && input[1] === 0x8b ? gunzipSync(input) : input;
   const entries: TarEntry[] = [];
   let offset = 0;
@@ -56,6 +62,8 @@ export function readTar(input: Buffer): TarEntry[] {
     longName = paxPath = undefined;
     if (typeflag === '0' || typeflag === '\0' || typeflag === '5') {
       entries.push({ path: path.replace(/\/$/, ''), type: typeflag === '5' ? 'dir' : 'file', data: Buffer.from(data), mode: readOctal(header, 100, 8), mtime: readOctal(header, 136, 12) });
+    } else if (options.links && (typeflag === '1' || typeflag === '2')) {
+      entries.push({ path, type: typeflag === '2' ? 'symlink' : 'link', linkTarget: readString(header, 157, 100), data: Buffer.alloc(0), mode: readOctal(header, 100, 8), mtime: readOctal(header, 136, 12) });
     }
   }
   return entries;
@@ -66,11 +74,12 @@ function writeOctal(buf: Buffer, value: number, offset: number, length: number):
 }
 
 /** Builds an uncompressed ustar archive (gzip it with zlib if needed). */
-export function writeTar(entries: { path: string; data?: Buffer; mode?: number; mtime?: number; type?: 'file' | 'dir' }[]): Buffer {
+export function writeTar(entries: { path: string; data?: Buffer; mode?: number; mtime?: number; type?: 'file' | 'dir' | 'symlink'; linkTarget?: string }[]): Buffer {
   const parts: Buffer[] = [];
   for (const entry of entries) {
     const isDir = entry.type === 'dir';
-    const data = isDir ? Buffer.alloc(0) : (entry.data ?? Buffer.alloc(0));
+    const isLink = entry.type === 'symlink';
+    const data = isDir || isLink ? Buffer.alloc(0) : (entry.data ?? Buffer.alloc(0));
     let path = isDir && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path;
     if (Buffer.byteLength(path) > 100) {
       // GNU long name record
@@ -78,15 +87,16 @@ export function writeTar(entries: { path: string; data?: Buffer; mode?: number; 
       parts.push(header('././@LongLink', longName.length, 'L', 0o644, 0), pad(longName));
       path = path.slice(0, 99);
     }
-    parts.push(header(path, data.length, isDir ? '5' : '0', entry.mode ?? (isDir ? 0o755 : 0o644), entry.mtime ?? Math.floor(Date.now() / 1000)), pad(data));
+    parts.push(header(path, data.length, isDir ? '5' : isLink ? '2' : '0', entry.mode ?? (isDir ? 0o755 : 0o644), entry.mtime ?? Math.floor(Date.now() / 1000), entry.linkTarget), pad(data));
   }
   parts.push(Buffer.alloc(BLOCK * 2));
   return Buffer.concat(parts);
 }
 
-function header(path: string, size: number, typeflag: string, mode: number, mtime: number): Buffer {
+function header(path: string, size: number, typeflag: string, mode: number, mtime: number, linkTarget?: string): Buffer {
   const buf = Buffer.alloc(BLOCK);
   buf.write(path, 0, 100, 'utf8');
+  if (linkTarget) buf.write(linkTarget, 157, 100, 'utf8');
   writeOctal(buf, mode, 100, 8);
   writeOctal(buf, 0, 108, 8);
   writeOctal(buf, 0, 116, 8);

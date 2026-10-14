@@ -40,6 +40,19 @@ export class RemoteClient implements HomeApi {
     this.#options = options;
   }
 
+  /** POSTs a file (e.g. a plugin .tgz) as the raw request body. */
+  async upload<T>(path: string, data: Buffer, contentType = 'application/gzip'): Promise<T> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.#options.url}${path}`, { method: 'POST', headers: { authorization: `Bearer ${this.#options.token}`, 'content-type': contentType }, body: new Uint8Array(data) });
+    } catch {
+      throw new ApiError(0, 'UNREACHABLE', `Cannot reach Livynq at ${this.#options.url}`, 'Is "livynq start" running? Use --url for a remote instance.');
+    }
+    const json = (await res.json().catch(() => ({}))) as { error?: { code: string; message: string; hint?: string } };
+    if (!res.ok) throw new ApiError(res.status, json.error?.code ?? 'HTTP_ERROR', json.error?.message ?? res.statusText, json.error?.hint);
+    return json as T;
+  }
+
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {

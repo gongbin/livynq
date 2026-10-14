@@ -31,6 +31,7 @@ const sources: Record<OnboardingMethodId, { adapter: string; protocol: string }>
   esphome: { adapter: 'esphome', protocol: 'esphome' },
   shelly: { adapter: 'shelly', protocol: 'shelly' },
   hue: { adapter: 'hue', protocol: 'hue' },
+  xiaomi: { adapter: 'xiaomi', protocol: 'xiaomi' },
   homeassistant: { adapter: 'homeassistant', protocol: 'ha' },
   virtual: { adapter: 'virtual', protocol: 'virtual' },
   mqtt: { adapter: 'mqtt', protocol: 'mqtt' },

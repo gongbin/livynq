@@ -89,8 +89,9 @@ export function SettingsPage() {
 const moreItems: { route: Route; icon: IconName; label: MessageKey; soon?: boolean }[] = [
   { route: 'rooms', icon: 'layers', label: 'nav.rooms' },
   { route: 'automations', icon: 'workflow', label: 'nav.automations' },
-  { route: 'migrate', icon: 'import', label: 'nav.migrate', soon: true },
+  { route: 'migrate', icon: 'import', label: 'nav.migrate' },
   { route: 'wall', icon: 'tablet', label: 'nav.wall' },
+  { route: 'plugins', icon: 'puzzle', label: 'nav.plugins' },
   { route: 'settings', icon: 'settings', label: 'nav.settings' },
 ];
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DeviceDTO } from '@livynq/model';
+import { renderSVG } from 'uqr';
 import {
   canScanQr,
   classifyCommissionError,
@@ -394,7 +395,7 @@ export function ZigbeePanel({ method, canAdmin, added, reload, openDevice, healt
 }
 
 /** USB / serial stick chooser shared by Zigbee and Z-Wave: detected ports, rescan, or a typed path. */
-function useSerialPicker(canAdmin: boolean, labels: { label: MessageKey; empty: MessageKey } = { label: 'add.zigbee.port', empty: 'add.zigbee.noPorts' }): { path: string; field: ReactNode } {
+export function useSerialPicker(canAdmin: boolean, labels: { label: MessageKey; empty: MessageKey } = { label: 'add.zigbee.port', empty: 'add.zigbee.noPorts' }): { path: string; field: ReactNode } {
   const t = useT();
   const [ports, setPorts] = useState<{ path: string; label: string }[] | null>(null);
   const [choice, setChoice] = useState('');
@@ -1487,6 +1488,280 @@ function HueBridges({ canAdmin }: { canAdmin: boolean }) {
         </form>
       </Panel>
     </>
+  );
+}
+
+// ================================================================ Xiaomi / Mijia
+
+interface XiaomiLogin {
+  state: 'idle' | 'waiting' | 'done' | 'error';
+  error?: string;
+  loginUrl?: string;
+  expiresAt?: number;
+  signedIn: boolean;
+  country: string;
+  cloud: boolean;
+  devices: number;
+}
+interface XiaomiDevice {
+  did: string;
+  id: string;
+  name: string;
+  model: string;
+  host: string | null;
+  mode: 'local' | 'cloud' | 'none';
+  state: 'starting' | 'online' | 'offline' | 'unsupported' | 'error';
+  error?: string;
+}
+
+const XIAOMI_REGIONS = ['cn', 'de', 'us', 'ru', 'sg', 'i2'] as const;
+
+export function XiaomiPanel({ method, canAdmin, added, reload, openDevice, health, refreshPlugins }: PanelProps<PluginMethod>) {
+  const t = useT();
+  const [country, setCountry] = useState('cn');
+  const [cloud, setCloud] = useState(false);
+  if (!method.enabled)
+    return (
+      <EnablePlugin method={method} canAdmin={canAdmin} intro={t('add.xiaomi.enableIntro')} onEnabled={reload} config={() => ({ country, cloud })}>
+        <SelectField label={t('add.xiaomi.region')} value={country} onChange={setCountry} options={XIAOMI_REGIONS.map((r) => ({ value: r, label: t(`add.xiaomi.region.${r}` as MessageKey) }))} />
+        <div className="flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[13px] font-bold">{t('add.xiaomi.cloud')}</span>
+            <span className="block text-xs text-muted">{t('add.xiaomi.cloudHint')}</span>
+          </span>
+          <Switch checked={cloud} onChange={setCloud} label={t('add.xiaomi.cloud')} />
+        </div>
+      </EnablePlugin>
+    );
+  return (
+    <>
+      <PluginHealth info={health} refresh={refreshPlugins} />
+      {(!health || health.status === 'running') && (
+        <>
+          <XiaomiAccount canAdmin={canAdmin} />
+          <AddedDevices devices={added} openDevice={openDevice} />
+          <XiaomiDevices canAdmin={canAdmin} />
+          <XiaomiManual canAdmin={canAdmin} />
+        </>
+      )}
+    </>
+  );
+}
+
+function XiaomiAccount({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [status, setStatus] = useState<XiaomiLogin | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const now = useTick(status?.state === 'waiting');
+
+  const refresh = async () => {
+    try {
+      setStatus(await api.pluginAction<XiaomiLogin>('xiaomi', 'loginStatus'));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  useEffect(() => {
+    if (!canAdmin) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (!cancelled) timer = setTimeout(poll, 2000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAdmin]);
+
+  const run = async (action: 'login' | 'logout' | 'sync') => {
+    setBusy(action);
+    setError(null);
+    setNote(null);
+    try {
+      const r = await api.pluginAction<{ devices?: number; local?: number }>('xiaomi', action);
+      if (action === 'sync') setNote(t('add.xiaomi.synced', { n: r.devices ?? 0, local: r.local ?? 0 }));
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const qr = useMemo(() => (status?.state === 'waiting' && status.loginUrl ? renderSVG(status.loginUrl, { border: 1, pixelSize: 6, whiteColor: '#ffffff', blackColor: '#1f1a14' }) : null), [status?.state, status?.loginUrl]);
+  const left = status?.expiresAt ? Math.max(0, Math.ceil((status.expiresAt - now) / 1000)) : 0;
+
+  if (!canAdmin)
+    return (
+      <Panel title={t('add.xiaomi.accountTitle')} icon="key">
+        <Note icon="lock">{t('add.adminOnlyAction')}</Note>
+      </Panel>
+    );
+
+  return (
+    <Panel
+      title={t('add.xiaomi.accountTitle')}
+      icon="key"
+      aside={status?.signedIn ? <Badge tone="ok"><Dot tone="ok" />{t('add.xiaomi.signedIn')}</Badge> : undefined}
+    >
+      {!status ? (
+        <div className="grid place-items-center py-6 text-muted">
+          <Spinner size={18} />
+        </div>
+      ) : status.state === 'waiting' && qr ? (
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+          <div className="shrink-0 overflow-hidden rounded-[14px] border border-line bg-white p-1.5 [&_svg]:block [&_svg]:size-[180px]" dangerouslySetInnerHTML={{ __html: qr }} role="img" aria-label={t('add.xiaomi.qrLabel')} />
+          <div className="flex min-w-0 flex-1 flex-col gap-3 max-sm:items-center max-sm:text-center">
+            <Steps items={[t('add.xiaomi.scan1'), t('add.xiaomi.scan2'), t('add.xiaomi.scan3')]} />
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <Spinner size={12} /> {t('add.xiaomi.waiting', { s: left })}
+            </div>
+            <div>
+              <Button size="sm" variant="ghost" onClick={() => void run('logout')}>
+                {t('common.cancel')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : status.signedIn ? (
+        <div className="flex flex-col gap-3">
+          <p className="m-0 text-[13.5px] leading-relaxed text-pretty">{t('add.xiaomi.signedInBody', { n: status.devices, region: t(`add.xiaomi.region.${status.country}` as MessageKey) })}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button icon="rotateCcw" busy={busy === 'sync'} onClick={() => void run('sync')}>
+              {t('add.xiaomi.sync')}
+            </Button>
+            <Button variant="ghost" icon="logOut" busy={busy === 'logout'} onClick={() => void run('logout')}>
+              {t('add.xiaomi.signOut')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="m-0 text-[13.5px] leading-relaxed text-pretty">{t('add.xiaomi.signInBody')}</p>
+          {status.state === 'error' && status.error && <ErrorNote>{status.error}</ErrorNote>}
+          <div>
+            <Button variant="amber" icon="scanQr" busy={busy === 'login'} onClick={() => void run('login')}>
+              {t('add.xiaomi.signIn')}
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
+      {note && (
+        <Note icon="circleCheck" tone="ok">
+          {note}
+        </Note>
+      )}
+      <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.xiaomi.privacy')}</p>
+    </Panel>
+  );
+}
+
+function XiaomiDevices({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [list, setList] = useState<XiaomiDevice[] | null>(null);
+  useEffect(() => {
+    if (!canAdmin) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const r = await api.pluginAction<XiaomiDevice[]>('xiaomi', 'devices');
+        if (!cancelled) setList(r);
+      } catch {
+        // shown by the account panel / plugin health
+      }
+      if (!cancelled) timer = setTimeout(poll, 4000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [canAdmin]);
+  if (!canAdmin || !list?.length) return null;
+  const order = { online: 0, starting: 1, offline: 2, error: 3, unsupported: 4 };
+  const sorted = [...list].sort((a, b) => order[a.state] - order[b.state] || a.name.localeCompare(b.name));
+  return (
+    <Panel title={t('add.xiaomi.devicesTitle', { n: list.length })} icon="list">
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {sorted.map((d) => (
+          <li key={d.did} className={cx('flex items-center gap-3 rounded-[15px] bg-surface2 p-2.5 pr-3', d.state === 'unsupported' && 'opacity-70')}>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{d.name || d.model}</span>
+              <span className="block truncate font-mono text-[11.5px] text-muted">{[d.model, d.host].filter(Boolean).join(' · ')}</span>
+              {d.error && d.state !== 'online' && <span className="block text-[12px] leading-snug text-pretty text-muted">{d.error}</span>}
+            </span>
+            {d.mode !== 'none' && <Badge>{d.mode === 'local' ? t('add.xiaomi.local') : t('add.xiaomi.viaCloud')}</Badge>}
+            <Badge tone={d.state === 'online' ? 'ok' : d.state === 'offline' || d.state === 'error' ? 'alert' : 'chip'}>
+              {d.state === 'online' && <Dot tone="ok" />}
+              {t(`add.xiaomi.state.${d.state}` as MessageKey)}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+      <p className="m-0 text-xs leading-relaxed text-pretty text-muted">{t('add.xiaomi.devicesFoot')}</p>
+    </Panel>
+  );
+}
+
+function XiaomiManual({ canAdmin }: { canAdmin: boolean }) {
+  const t = useT();
+  const [host, setHost] = useState('');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const valid = host.trim() && /^[0-9a-f]{32}$/i.test(token.trim());
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const r = await api.pluginAction<{ model: string }>('xiaomi', 'add', { host: host.trim(), token: token.trim() });
+      setNote(t('add.xiaomi.manualAdded', { model: r.model || host.trim() }));
+      setHost('');
+      setToken('');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title={t('add.xiaomi.manualTitle')} icon="pencil">
+      <Advanced label={t('add.xiaomi.manualToggle')}>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid && canAdmin) void submit();
+          }}
+        >
+          <TextField label={t('add.esphome.host')} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.40" spellCheck={false} autoCapitalize="off" disabled={!canAdmin} />
+          <TextField label="Token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="32 位十六进制" hint={t('add.xiaomi.tokenHint')} spellCheck={false} autoCapitalize="off" autoComplete="off" className="[&_input]:font-mono" disabled={!canAdmin} />
+          {error && <ErrorNote>{error}</ErrorNote>}
+          {note && (
+            <Note icon="circleCheck" tone="ok">
+              {note}
+            </Note>
+          )}
+          {canAdmin && (
+            <div>
+              <Button type="submit" variant="amber" icon="plus" busy={busy} disabled={!valid}>
+                {t('add.esphome.add')}
+              </Button>
+            </div>
+          )}
+        </form>
+      </Advanced>
+    </Panel>
   );
 }
 

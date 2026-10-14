@@ -7,6 +7,7 @@ import { isAbsolute } from 'node:path';
 import { isPluginDefinition, type CommandHandler, type PluginContext, type PluginDevice } from '@livynq/sdk';
 import type { AttributeValue, Device, DeviceDefinition } from '@livynq/model';
 import type { ChildMessage, ParentMessage, StateSnapshot } from './protocol.ts';
+import { provideSdk } from './sdk-host.ts';
 
 /** Runs the plugin host in this process (forked child, or the SEA binary relaunched with LIVYNQ_ROLE=plugin-host). */
 export function runPluginHost(): void {
@@ -15,6 +16,7 @@ export function runPluginHost(): void {
     process.exit(1);
   }
 
+  provideSdk();
   const send = (msg: ChildMessage) => process.send!(msg);
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   const handlers = new Map<string, Record<string, CommandHandler>>();

@@ -5,6 +5,7 @@ import type {
   DeviceDTO,
   ExposurePolicy,
   HomeKitBridgeInfo,
+  MatterBridgeInfo,
   Level,
   Placement,
   PushInfo,
@@ -136,7 +137,7 @@ export type CommandResult = { ok: true } | PendingCommand;
 
 export type ConfirmationStatus = ConfirmationDTO['status'];
 
-export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'hue' | 'homeassistant' | 'virtual';
+export type PluginMethodId = 'matter' | 'zigbee' | 'zwave' | 'esphome' | 'shelly' | 'hue' | 'xiaomi' | 'homeassistant' | 'virtual';
 export type OnboardingMethodId = PluginMethodId | 'mqtt';
 
 export interface PluginActionInfo {
@@ -165,6 +166,83 @@ export interface PluginInfo {
   status: PluginStatus;
   lastError?: string | null;
   actions: PluginActionInfo[];
+}
+
+/** Settings → Plugins: one row of `GET /api/v1/plugins?all=1` (apps/server/src/plugins/manager.ts). */
+export interface PluginRow {
+  id: string;
+  module?: string;
+  path?: string;
+  description?: string;
+  source: 'bundled' | 'builtin' | 'installed' | 'path' | 'missing';
+  official: boolean;
+  version: string | null;
+  latest?: string | null;
+  updateAvailable?: boolean;
+  configured: boolean;
+  enabled: boolean;
+  status: PluginStatus | 'off' | 'missing';
+  isolation: 'process' | 'in-process';
+  config: Record<string, unknown>;
+  lastError: string | null;
+  pid?: number | null;
+  restarts?: number;
+  devices?: number;
+  actions: PluginActionInfo[];
+  installed?: { source: 'registry' | 'file'; spec: string; installedAt: number; packages: number };
+  canUninstall: boolean;
+  canUpgrade: boolean;
+}
+
+/** `POST /api/v1/plugins/resolve`: what an install would do, nothing written yet. */
+export interface PluginPreview {
+  id: string;
+  root: { name: string; version: string; description?: string; author?: string; license?: string; homepage?: string; hasInstallScript: boolean };
+  packages: { name: string; version: string; path: string; hasInstallScript: boolean }[];
+  sdk: { ranges: string[]; provided: string; compatible: boolean };
+  warnings: string[];
+  source: 'registry' | 'file';
+  spec: string;
+  installedVersion: string | null;
+  conflict?: string;
+  uploadId?: string;
+}
+
+/** Where an import reads Home Assistant's config: a path on the hub, or an uploaded backup. */
+export type ImportSource = { path: string } | { upload: string };
+
+/** Mirrors ImportPlan (packages/importer-homeassistant) without the operations list. */
+export interface ImportPlan {
+  source: string;
+  haVersion?: string;
+  location?: { latitude: number; longitude: number; timeZone?: string };
+  rooms: { areaId: string; name: string; action: 'create' | 'match'; roomId?: string }[];
+  devices: {
+    haDeviceId: string;
+    name: string;
+    manufacturer?: string;
+    model?: string;
+    area?: string;
+    integration: string;
+    status: 'matched' | 'pending' | 'unsupported';
+    livynqDeviceId?: string;
+    reason?: string;
+    entities: { haEntityId: string; livynqEntityId?: string; status: 'same' | 'rename' | 'conflict' | 'missing' | 'skipped'; reason?: string }[];
+  }[];
+  automations: { id: string; alias: string; status: 'import' | 'invalid' | 'exists'; errors: string[]; missingEntities: string[] }[];
+  notImported: { scripts: number; scenes: number; blueprints: number; floors: number };
+  warnings: string[];
+  summary: { rooms: number; devicesMatched: number; devicesPending: number; devicesUnsupported: number; entityRenames: number; automations: number; automationsInvalid: number };
+}
+
+export interface ImportRecord {
+  id: string;
+  source: string;
+  createdAt: number;
+  createdBy: string;
+  revertedAt: number | null;
+  summary: ImportPlan['summary'];
+  applied: { operations: number; failed: { operation: Record<string, unknown>; error: string }[] };
 }
 
 export class ApiError extends Error {
@@ -291,6 +369,18 @@ export const api = {
   deleteWallBackground: () => request<{ wall: WallSettings }>('DELETE', '/ui/wall-background'),
   uploadWallBackground: (image: Blob, onProgress?: (fraction: number) => void) => upload<{ wall: WallSettings }>('/api/v1/ui/wall-background', image, onProgress),
 
+  matterBridge: () => request<MatterBridgeInfo>('GET', '/matter'),
+
+  /** Home Assistant migration (apps/server/src/routes/imports.ts). */
+  uploadImport: (file: Blob, name: string, onProgress?: (fraction: number) => void) =>
+    upload<{ upload: string; size: number }>(`/api/v1/imports/uploads?name=${enc(name)}`, file, onProgress, { method: 'POST', type: 'application/octet-stream' }),
+  planImport: (source: ImportSource) => request<ImportPlan>('POST', '/imports/homeassistant/plan', source),
+  applyImport: (source: ImportSource, enableAutomations: boolean) =>
+    request<{ import: ImportRecord; report: ImportPlan }>('POST', '/imports/homeassistant/apply', { ...source, enableAutomations }),
+  imports: () => request<ImportRecord[]>('GET', '/imports'),
+  revertImport: (id: string) => request<{ reverted: number; skipped: string[] }>('POST', `/imports/${enc(id)}/revert`),
+  reconfigurePlugin: (id: string, config: Record<string, unknown>) => request<{ id: string; status: string; lastError: string | null }>('PATCH', `/plugins/${enc(id)}`, { config }),
+
   onboarding: () => request<Onboarding>('GET', '/onboarding'),
   plugins: () => request<PluginInfo[]>('GET', '/plugins'),
   enablePlugin: (module: string, config?: Record<string, unknown>) =>
@@ -298,17 +388,26 @@ export const api = {
   pluginAction: <T = unknown>(plugin: string, action: string, params: Record<string, unknown> = {}) =>
     request<{ result: T }>('POST', `/plugins/${enc(plugin)}/actions/${enc(action)}`, params).then((r) => r.result),
   restartPlugin: (id: string) => request<PluginInfo>('POST', `/plugins/${enc(id)}/restart`),
+  pluginRows: (updates = false, force = false) => request<PluginRow[]>('GET', `/plugins?all=1${updates ? '&updates=1' : ''}${force ? '&force=1' : ''}`),
+  resolvePluginSpec: (spec: string) => request<PluginPreview>('POST', '/plugins/resolve', { spec }),
+  resolvePluginFile: (file: Blob, name: string, onProgress?: (fraction: number) => void) =>
+    upload<PluginPreview>(`/api/v1/plugins/resolve?filename=${enc(name)}`, file, onProgress, { method: 'POST', type: 'application/gzip' }),
+  installPlugin: (source: { spec: string } | { uploadId: string }) => request<PluginRow & { warnings: string[] }>('POST', '/plugins/install', source),
+  upgradePlugin: (id: string) => request<PluginRow & { upgraded: boolean; from: string | null }>('POST', `/plugins/${enc(id)}/upgrade`),
+  setPluginEnabled: (id: string, enabled: boolean) => request<PluginRow>('POST', `/plugins/${enc(id)}/${enabled ? 'enable' : 'disable'}`),
+  configurePlugin: (id: string, config: Record<string, unknown>) => request<PluginRow>('PUT', `/plugins/${enc(id)}/config`, { config }),
+  removePlugin: (id: string, uninstall: boolean) => request<void>('DELETE', `/plugins/${enc(id)}${uninstall ? '?uninstall=true' : ''}`),
   serialPorts: () => request<{ path: string; label: string }[]>('GET', '/system/serial-ports'),
 };
 
-/** Raw image PUT. XHR rather than fetch: fetch cannot report upload progress. */
-function upload<T>(url: string, image: Blob, onProgress?: (fraction: number) => void): Promise<T> {
+/** Raw body upload (images: PUT with their type). XHR rather than fetch: fetch cannot report upload progress. */
+function upload<T>(url: string, image: Blob, onProgress?: (fraction: number) => void, opts: { method?: string; type?: string } = {}): Promise<T> {
   const token = auth.get();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
+    xhr.open(opts.method ?? 'PUT', url);
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.setRequestHeader('Content-Type', image.type);
+    xhr.setRequestHeader('Content-Type', opts.type ?? image.type);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onerror = () => reject(new ApiError(0, { code: 'NETWORK', message: 'Upload failed' }));
     xhr.onload = () => {

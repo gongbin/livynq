@@ -28,14 +28,19 @@
     "@livynq/plugin-matter": "workspace:*",
     "@livynq/plugin-shelly": "workspace:*",
     "@livynq/plugin-virtual": "workspace:*",
+    "@livynq/plugin-xiaomi": "workspace:*",
     "@livynq/sdk": "workspace:*",
     "fastify": "^5.12.5",
     "pino": "^10.4.0",
+    "semver": "7.8.5",
     "yaml": "^2.9.1"
   },
   "optionalDependencies": {
     "@livynq/plugin-esphome": "workspace:*",
     "@livynq/plugin-zigbee": "workspace:*",
     "@livynq/plugin-zwave": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/semver": "7.8.0"
   }
 }

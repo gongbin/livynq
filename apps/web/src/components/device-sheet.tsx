@@ -324,6 +324,13 @@ function SettingsSection({ device }: { device: DeviceDTO }) {
         </span>
         <Switch checked={device.exposure.homekit} pending={busy === 'exposure'} disabled={!canAdmin} label={t('dev.exposeHomekit')} onChange={(homekit) => setExposure({ homekit })} />
       </div>
+      <div className="flex items-center justify-between gap-3 py-1">
+        <span className="flex items-center gap-2 text-sm font-bold">
+          <Icon name="share" size={16} className="text-muted" />
+          {t('dev.exposeMatter')}
+        </span>
+        <Switch checked={device.exposure.matter !== false} pending={busy === 'exposure'} disabled={!canAdmin} label={t('dev.exposeMatter')} onChange={(matter) => setExposure({ matter })} />
+      </div>
       <div className="flex flex-col gap-2">
         <span className="flex items-center gap-2 text-sm font-bold">
           <Icon name="bot" size={16} className="text-muted" />

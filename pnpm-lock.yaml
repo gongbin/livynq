@@ -229,6 +229,9 @@ importers:
       '@livynq/plugin-virtual':
         specifier: workspace:*
         version: link:../../plugins/virtual
+      '@livynq/plugin-xiaomi':
+        specifier: workspace:*
+        version: link:../../plugins/xiaomi
       '@livynq/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -238,9 +241,16 @@ importers:
       pino:
         specifier: ^10.4.0
         version: 10.4.0
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+    devDependencies:
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
     optionalDependencies:
       '@livynq/plugin-esphome':
         specifier: workspace:*
@@ -521,6 +531,19 @@ importers:
       '@livynq/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+
+  plugins/xiaomi:
+    dependencies:
+      '@livynq/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@livynq/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@livynq/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/zigbee:
     dependencies:
@@ -1428,6 +1451,9 @@ packages:
 
   '@types/readable-stream@4.0.25':
     resolution: {integrity: sha512-7GsxL8Wd5X3jh73/qgW7WCnbBvGSdD8U3E4Jiuus3/8I+PN20DtlkJtwFhr/sImXfDDQ2Z03i/9wNiIF3TVSsw==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/stats.js@0.17.4':
     resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
@@ -3938,6 +3964,8 @@ snapshots:
   '@types/readable-stream@4.0.25':
     dependencies:
       '@types/node': 24.19.2
+
+  '@types/semver@7.8.0': {}
 
   '@types/stats.js@0.17.4': {}
 

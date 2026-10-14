@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { DeviceDTO, HomeKitBridgeInfo } from '@livynq/model';
+import type { DeviceDTO, HomeKitBridgeInfo, MatterBridgeInfo } from '@livynq/model';
 import { renderSVG } from 'uqr';
 import { Icon } from '../components/icons.tsx';
 import { toast } from '../components/toast.tsx';
-import { Badge, Card, ErrorNote, PageHeader, SectionLabel, Segmented, Spinner } from '../components/ui.tsx';
+import { Badge, Card, Dot, ErrorNote, PageHeader, SectionLabel, Spinner, Switch } from '../components/ui.tsx';
 import { api, errorMessage } from '../lib/api.ts';
 import { describe, roomName, sortDevices } from '../lib/devices.ts';
 import { formatPincode } from '../lib/format.ts';
@@ -38,7 +38,7 @@ export function EcosystemsPage() {
     <>
       <PageHeader title={t('eco.title')} subtitle={t('eco.subtitle')} />
       {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         {hk === null && !error ? (
           <Card className="grid min-h-60 place-items-center text-muted">
             <Spinner size={20} />
@@ -143,21 +143,136 @@ function HomeKitDisabled({ noBridges }: { noBridges?: boolean }) {
   );
 }
 
+/** Matter vendor ids of the common controllers (CSA vendor list). */
+const MATTER_VENDORS: Record<number, string> = {
+  0x1349: 'Apple Home',
+  0x6006: 'Google Home',
+  0x1217: 'Amazon Alexa',
+  0x110a: 'SmartThings',
+};
+
+/** "34970112332" → "3497-011-2332" (11 digits) or 21-digit codes in 4-3-4-5-5 groups. */
+function formatManualCode(code: string): string {
+  const d = code.replace(/\D/g, '');
+  const groups = d.length === 21 ? [4, 3, 4, 5, 5] : [4, 3, 4];
+  const out: string[] = [];
+  let i = 0;
+  for (const g of groups) {
+    if (i >= d.length) break;
+    out.push(d.slice(i, i + g));
+    i += g;
+  }
+  return out.join('-');
+}
+
 function MatterCard() {
   const t = useT();
+  const [info, setInfo] = useState<MatterBridgeInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = async () => {
+      let next: MatterBridgeInfo | null = null;
+      try {
+        next = await api.matterBridge();
+        if (!cancelled) (setInfo(next), setError(null));
+      } catch (e) {
+        if (!cancelled) setError(errorMessage(e));
+      }
+      // Waiting for someone to scan the code: check often so the card flips right away.
+      if (!cancelled) timer = setTimeout(load, next?.enabled && !next.commissioned ? 4000 : 15_000);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const svg = useMemo(() => (info?.qrPairingCode ? renderSVG(info.qrPairingCode, { border: 1, pixelSize: 6, whiteColor: '#ffffff', blackColor: '#1f1a14' }) : null), [info?.qrPairingCode]);
+
+  if (!info)
+    return (
+      <Card className="grid min-h-60 place-items-center text-muted">
+        {error ? <ErrorNote>{error}</ErrorNote> : <Spinner size={20} />}
+      </Card>
+    );
+
+  if (!info.enabled)
+    return (
+      <Card className="flex flex-col gap-4">
+        <CardTitle icon="share" title="Matter" subtitle={t('eco.matter.subtitle')} badge={<Badge>{t('settings.disabled')}</Badge>} />
+        <div className="flex gap-4">
+          <div className="grid size-[108px] shrink-0 place-items-center rounded-[14px] border border-line bg-[repeating-linear-gradient(45deg,var(--chip)_0_6px,var(--surface)_6px_12px)] text-muted">
+            <Icon name="share" size={22} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="text-[15px] font-extrabold">{t('eco.matter.off')}</div>
+            <p className="m-0 text-[13px] leading-relaxed text-pretty text-muted">{t('eco.matter.offBody')}</p>
+          </div>
+        </div>
+        <pre className="m-0 overflow-x-auto rounded-ctl bg-surface2 p-3 font-mono text-[12px] leading-relaxed">{'# livynq.yaml\nmatter:\n  bridge:\n    enabled: true'}</pre>
+      </Card>
+    );
+
+  const controllers = info.fabrics.map((f) => f.label.trim() || MATTER_VENDORS[f.vendorId] || t('eco.matter.vendor', { id: `0x${f.vendorId.toString(16).padStart(4, '0').toUpperCase()}` }));
   return (
     <Card className="flex flex-col gap-4">
-      <CardTitle icon="share" title="Matter" subtitle="Controller + Bridge" badge={<Badge tone="amber">{t('common.soon')}</Badge>} />
-      <div className="flex flex-col gap-2 opacity-70">
-        <SectionLabel>Fabrics</SectionLabel>
-        {['Apple Home', 'Google Home', 'Livynq Controller'].map((name) => (
-          <div key={name} className="flex items-center justify-between rounded-[13px] bg-chip px-3 py-[11px] text-[13.5px]">
-            <span className="font-bold">{name}</span>
-            <span className="h-2 w-16 rounded-full bg-line" aria-hidden="true" />
+      <CardTitle
+        icon="share"
+        title="Matter"
+        subtitle={t('eco.matter.subtitle')}
+        badge={<Badge tone={info.commissioned ? 'ok' : 'amber'}>{info.commissioned ? t('eco.matter.connected', { n: controllers.length }) : t('eco.homekit.notPaired')}</Badge>}
+      />
+      {!info.commissioned && svg && info.manualPairingCode ? (
+        <>
+          <div className="flex flex-wrap items-center gap-4">
+            {/* QR codes need a light background to scan reliably, also in dark mode. */}
+            <div
+              role="img"
+              aria-label={t('eco.matter.qr')}
+              className="size-[132px] shrink-0 overflow-hidden rounded-[14px] border border-line bg-white p-1.5 [&>svg]:h-full [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+            <div className="flex flex-col gap-1">
+              <div className="text-xs text-muted">{t('eco.matter.code')}</div>
+              <div className="font-mono text-[20px] font-bold tracking-[0.04em]">{formatManualCode(info.manualPairingCode)}</div>
+              <div className="text-xs text-muted">
+                {t('eco.homekit.port')} {info.port} · {t('eco.matter.devices', { n: info.deviceCount })}
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
-      <p className="m-0 text-[13px] leading-relaxed text-muted">{t('eco.matter.body')}</p>
+          <ol className="m-0 flex list-none flex-col gap-2 border-t border-line p-0 pt-3">
+            {(['eco.matter.stepApple', 'eco.matter.stepGoogle', 'eco.matter.stepAlexa', 'eco.matter.stepSmartThings'] as const).map((k, i) => (
+              <li key={k} className="flex items-start gap-2.5 text-[13px] leading-snug">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-amber-soft font-mono text-[11px] font-bold text-amber-ink">{i + 1}</span>
+                <span className="min-w-0 pt-[3px] text-pretty">{t(k)}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <SectionLabel>{t('eco.matter.controllers')}</SectionLabel>
+            {controllers.map((name, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 rounded-[13px] bg-chip px-3 py-[11px] text-[13.5px]">
+                <span className="truncate font-bold">{name}</span>
+                <Badge tone="ok">
+                  <Dot tone="ok" />
+                  {t('eco.homekit.paired')}
+                </Badge>
+              </div>
+            ))}
+          </div>
+          <div className="text-xs text-muted">
+            {t('eco.homekit.port')} {info.port} · {t('eco.matter.devices', { n: info.deviceCount })}
+          </div>
+          <p className="m-0 border-t border-line pt-3 text-[13px] leading-relaxed text-pretty text-muted">{t('eco.matter.addAnother')}</p>
+        </>
+      )}
     </Card>
   );
 }
@@ -169,10 +284,9 @@ function ExposureList({ homekitEnabled }: { homekitEnabled: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const list = sortDevices(Object.values(devices));
 
-  const set = (d: DeviceDTO, homekit: boolean) => {
-    if (homekit === d.exposure.homekit) return;
+  const set = (d: DeviceDTO, patch: { homekit?: boolean; matter?: boolean }) => {
     setBusy(d.id);
-    api.updateDevice(d.id, { exposure: { ...d.exposure, homekit } }).then(
+    api.updateDevice(d.id, { exposure: { ...d.exposure, ...patch } }).then(
       () => setBusy(null),
       (e: unknown) => {
         setBusy(null);
@@ -189,8 +303,9 @@ function ExposureList({ homekitEnabled }: { homekitEnabled: boolean }) {
       </div>
       {list.map((d) => {
         const v = describe(d, t);
+        const matter = d.exposure.matter !== false;
         return (
-          <div key={d.id} className="flex flex-wrap items-center gap-3 border-t border-line py-2.5">
+          <div key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line py-2.5">
             <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-chip text-muted">
               <Icon name={v.icon} size={15} />
             </span>
@@ -198,18 +313,17 @@ function ExposureList({ homekitEnabled }: { homekitEnabled: boolean }) {
               <div className="text-sm font-bold">{d.name}</div>
               <div className="text-xs text-muted">{[roomName(d, rooms), d.protocol].filter(Boolean).join(' · ')}</div>
             </div>
-            {busy === d.id && <Spinner size={14} className="text-muted" />}
-            <Segmented
-              size="sm"
-              label={`${d.name}: ${t('dev.exposeHomekit')}`}
-              value={d.exposure.homekit ? 'hap' : 'off'}
-              onChange={(v) => canAdmin && busy !== d.id && set(d, v === 'hap')}
-              options={[
-                { value: 'hap', label: 'HAP', disabled: !canAdmin },
-                { value: 'matter', label: 'Matter', disabled: true, hint: t('common.soon') },
-                { value: 'off', label: t('common.off'), disabled: !canAdmin },
-              ]}
-            />
+            <div className="flex items-center gap-4 max-sm:w-full max-sm:justify-end">
+              {busy === d.id && <Spinner size={14} className="text-muted" />}
+              <span className="flex items-center gap-2">
+                <span className="text-[12px] font-bold text-muted">HomeKit</span>
+                <Switch checked={d.exposure.homekit} disabled={!canAdmin || busy === d.id} onChange={(on) => set(d, { homekit: on })} label={`${d.name}: HomeKit`} />
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="text-[12px] font-bold text-muted">Matter</span>
+                <Switch checked={matter} disabled={!canAdmin || busy === d.id} onChange={(on) => set(d, { matter: on })} label={`${d.name}: Matter`} />
+              </span>
+            </div>
           </div>
         );
       })}

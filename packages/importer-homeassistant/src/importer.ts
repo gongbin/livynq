@@ -79,6 +79,9 @@ const INTEGRATION_NOTES: Record<string, string> = {
   matter: 'Matter: share the device from the Home Assistant app (multi-admin) and add it in Livynq with the pairing code',
   esphome: 'ESPHome: add the node in Livynq (Add device → ESPHome) with its API encryption key',
   shelly: 'Shelly: add the device in Livynq (Add device → Shelly)',
+  xiaomi_home: 'Xiaomi Home: sign in with the Mi Home app in Livynq (Add device → Xiaomi / Mijia); Wi-Fi devices are then controlled locally',
+  xiaomi_miot: 'Xiaomi MIoT: sign in with the Mi Home app in Livynq (Add device → Xiaomi / Mijia)',
+  xiaomi_aqara: 'Aqara gateway devices: pair Aqara Zigbee devices directly with a Zigbee coordinator, or use the Xiaomi plugin with cloud access',
   hue: 'Philips Hue: pair the bridge in Livynq (Add device → Philips Hue); Home Assistant can stay paired too',
   homekit_controller: 'HomeKit controller: not supported yet',
 };

@@ -19,7 +19,8 @@ import { HomePage } from './pages/home.tsx';
 import { LoginPage } from './pages/login.tsx';
 import { RoomsPage } from './pages/rooms.tsx';
 import { MorePage, SettingsPage } from './pages/settings.tsx';
-import { MigratePage } from './pages/stubs.tsx';
+import { PluginsPage } from './pages/plugins.tsx';
+import { MigratePage } from './pages/migrate.tsx';
 import { WallPage } from './pages/wall.tsx';
 
 const pages: Record<Exclude<Route, 'wall'>, ComponentType> = {
@@ -30,6 +31,7 @@ const pages: Record<Exclude<Route, 'wall'>, ComponentType> = {
   agents: AgentsPage,
   migrate: MigratePage,
   ecosystems: EcosystemsPage,
+  plugins: PluginsPage,
   settings: SettingsPage,
   more: MorePage,
 };
